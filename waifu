@@ -3,7 +3,7 @@
 # Uses: nekosapi.com v4, waifu.im, nekos.best APIs
 # See waifu nsfw --help for NSFW options
 #
-# Repository: https://github.com/JGH0/waifu
+# Repository: https://github.com/JGH0/waifufetch
 # License: MIT
 
 set -euo pipefail

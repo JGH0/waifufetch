@@ -1,0 +1,15 @@
+pkgbase = waifu-cli
+pkgname = waifu-cli
+pkgver = 1.0.0
+pkgrel = 1
+pkgdesc = Fetch and display random anime waifu images in your kitty terminal
+url = https://github.com/JGH0/waifu-cli
+install = 
+changelog = 
+arch = any
+license = MIT
+depends = kitty
+depends = curl
+depends = jq
+source = waifu-cli-1.0.0.tar.gz::https://github.com/JGH0/waifu-cli/archive/v1.0.0.tar.gz
+sha256sums = SKIP

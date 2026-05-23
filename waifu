@@ -468,44 +468,44 @@ display_image() {
     # 1. Kitty native icat
     if [[ -n "${KITTY_WINDOW_ID:-}" || "${TERM:-}" == *kitty* ]]; then
         if command -v kitty &>/dev/null; then
-            echo "[display] kitty icat" >&2
+            [[ $DEBUG -eq 1 ]] && echo "[display] kitty icat" >&2
             kitty +kitten icat "$file" 2>/dev/null && return 0
         fi
     fi
 
     # 2. chafa - auto-detects sixel/kitty/iterm2, falls back to ANSI blocks
     if command -v chafa &>/dev/null; then
-        echo "[display] chafa" >&2
+        [[ $DEBUG -eq 1 ]] && echo "[display] chafa" >&2
         chafa --symbols=block "$file" 2>/dev/null && return 0
     fi
 
     # 3. catimg - block pixel display (works on most terminals)
     if command -v catimg &>/dev/null; then
-        echo "[display] catimg" >&2
+        [[ $DEBUG -eq 1 ]] && echo "[display] catimg" >&2
         catimg "$file" 2>/dev/null && return 0
     fi
 
     # 4. viu - multi-protocol rust tool
     if command -v viu &>/dev/null; then
-        echo "[display] viu" >&2
+        [[ $DEBUG -eq 1 ]] && echo "[display] viu" >&2
         viu "$file" 2>/dev/null && return 0
     fi
 
     # 5. img2txt (caca-utils) - colored ASCII art
     # Strip CRLF -> LF + remove cursor save/restore -> no flicker
     if command -v img2txt &>/dev/null; then
-        echo "[display] img2txt" >&2
+        [[ $DEBUG -eq 1 ]] && echo "[display] img2txt" >&2
         img2txt -W "$width" "$file" 2>/dev/null | tr -d '\r' | sed \$'s/\x1b\[[su]//g' && return 0
     fi
 
     # 6. jp2a - black & white ASCII art
     if command -v jp2a &>/dev/null; then
-        echo "[display] jp2a" >&2
+        [[ $DEBUG -eq 1 ]] && echo "[display] jp2a" >&2
         jp2a --width="$width" "$file" 2>/dev/null && return 0
     fi
 
     # Last resort: print URL
-    echo "[display] url-only" >&2
+    [[ $DEBUG -eq 1 ]] && echo "[display] url-only" >&2
     echo "Image: $url"
     echo "Tip: Install 'jp2a' or 'chafa' for terminal image display." >&2
     return 1

@@ -41,9 +41,16 @@ Display system info with a random waifu decoration.
                                     The default CASCADES: borderline
                                     includes safe+suggestive+borderline
 
+  waifufetch --setDefaultDisplayer <d> - set default image displayer
+                                    Valid: icat, chafa, img2txt, jp2a
+
   waifufetch --noLink             - suppress image URL output
   waifufetch --debug              - show detailed debug info
   waifufetch --help               - show this help
+
+You can prefix any invocation with a displayer name:
+  waifufetch icat                 - force kitty icat display
+  waifufetch chafa suggestive     - force chafa display with rating
 
 Categories: waifu neko kitsune husbando maid uniform selfies
 Characters: raiden-shogun mori-calliope rem ...
@@ -72,6 +79,20 @@ if [[ -f "$CONFIG_FILE" ]]; then
 fi
 
 # ============================================================
+# Displayer config
+# ============================================================
+WAIFU_DISPLAYER_FILE="$WAIFU_CONFIG_DIR/default_displayer"
+DEFAULT_DISPLAYER=""
+
+if [[ -f "$WAIFU_DISPLAYER_FILE" ]]; then
+    read -r DISPLAYER_VAL < "$WAIFU_DISPLAYER_FILE" || true
+    DISPLAYER_VAL="$(printf '%s' "$DISPLAYER_VAL" | xargs)"
+    case "$DISPLAYER_VAL" in
+        icat|chafa|img2txt|jp2a) DEFAULT_DISPLAYER="$DISPLAYER_VAL" ;;
+    esac
+fi
+
+# ============================================================
 # Parse --debug and --noLink from anywhere (must be first)
 # ============================================================
 DEBUG=0
@@ -94,6 +115,30 @@ for arg in "$@"; do
         usage
     fi
 done
+
+# ============================================================
+# Set default displayer
+# ============================================================
+if [[ "${1:-}" == "--setDefaultDisplayer" ]]; then
+    if [[ $# -lt 2 ]]; then
+        echo "Usage: waifufetch --setDefaultDisplayer <displayer>"
+        echo "Valid: icat, chafa, img2txt, jp2a"
+        exit 1
+    fi
+    NEW_DISP="$2"
+    case "$NEW_DISP" in
+        icat|chafa|img2txt|jp2a)
+            mkdir -p "$WAIFU_CONFIG_DIR"
+            echo "$NEW_DISP" > "$WAIFU_DISPLAYER_FILE"
+            echo "Default displayer set to: $NEW_DISP"
+            ;;
+        *)
+            echo "Error: Invalid displayer '$NEW_DISP'. Valid: icat, chafa, img2txt, jp2a" >&2
+            exit 1
+            ;;
+    esac
+    exit 0
+fi
 
 # ============================================================
 # Set default SFW
@@ -131,6 +176,19 @@ if [[ "${1:-}" == "--setDefaultSFW" ]]; then
             ;;
     esac
     exit 0
+fi
+
+# ============================================================
+# Parse positional displayer from first arg
+# ============================================================
+DISPLAYER="$DEFAULT_DISPLAYER"
+if [[ $# -ge 1 ]]; then
+    case "${1}" in
+        icat|chafa|img2txt|jp2a)
+            DISPLAYER="${1}"
+            shift
+            ;;
+    esac
 fi
 
 # ============================================================
@@ -223,6 +281,7 @@ if [[ $DEBUG -eq 1 ]]; then
     echo "[debug] api_rating:   $API_RATING" >&2
     echo "[debug] category:     $CATEGORY" >&2
     echo "[debug] default_sfw:  $DEFAULT_SFW" >&2
+    echo "[debug] displayer:    ${DISPLAYER:-auto}" >&2
 fi
 
 # ============================================================
@@ -369,6 +428,7 @@ image_to_text() {
     local file="$1"
     local width="$2"
     local max_height="${3:-0}"
+    local preferred="${4:-}"
     local lines=()
 
     local img_width=$((width / 3))
@@ -382,8 +442,47 @@ image_to_text() {
         [[ $img_height -lt 8 ]] && img_height=8
     fi
 
+    if [[ -n "$preferred" ]]; then
+        # User specified a displayer -- only try that one
+        case "$preferred" in
+            chafa)
+                if command -v chafa &>/dev/null; then
+                    mapfile -t lines < <(chafa --format=symbols --symbols=block --relative=off --size="${img_width}x${img_height}" "$file" 2>/dev/null || true)
+                    if [[ ${#lines[@]} -gt 0 ]]; then
+                        printf '%s\n' "${lines[@]}"
+                        return 0
+                    fi
+                fi
+                ;;
+            img2txt)
+                if command -v img2txt &>/dev/null; then
+                    mapfile -t lines < <(img2txt -W "$img_width" "$file" 2>/dev/null | tr -d '\r' | sed $'s/\x1b\[[su]//g' || true)
+                    if [[ ${#lines[@]} -gt 0 ]]; then
+                        printf '%s\n' "${lines[@]}"
+                        return 0
+                    fi
+                fi
+                ;;
+            jp2a)
+                if command -v jp2a &>/dev/null; then
+                    mapfile -t lines < <(jp2a --width="$img_width" "$file" 2>/dev/null || true)
+                    if [[ ${#lines[@]} -gt 0 ]]; then
+                        printf '%s\n' "${lines[@]}"
+                        return 0
+                    fi
+                fi
+                ;;
+            icat)
+                # icat does not output text lines -- handled separately in main()
+                return 1
+                ;;
+        esac
+        return 1
+    fi
+
+    # No preference: auto-detect
     if command -v chafa &>/dev/null; then
-        mapfile -t lines < <(chafa --symbols=block --size="${img_width}x${img_height}" "$file" 2>/dev/null || true)
+        mapfile -t lines < <(chafa --format=symbols --symbols=block --relative=off --size="${img_width}x${img_height}" "$file" 2>/dev/null || true)
         if [[ ${#lines[@]} -gt 0 ]]; then
             printf '%s\n' "${lines[@]}"
             return 0
@@ -440,7 +539,7 @@ print_side_by_side() {
     local max_lines=${#_art[@]}
     local max_info=${#info_lines[@]}
     local max=$((max_lines > max_info ? max_lines : max_info))
-    local l art_line info_line clean_art visual_len pad
+    local l art_line info_line
 
     for ((l=0; l<max; l++)); do
         art_line=""
@@ -449,15 +548,11 @@ print_side_by_side() {
         [[ $l -lt ${#info_lines[@]} ]] && info_line="${info_lines[$l]}"
 
         if [[ -n "$art_line" && -n "$info_line" ]]; then
-            clean_art="$(printf '%s' "$art_line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')"
-            visual_len=${#clean_art}
-            pad=$((info_col - visual_len))
-            [[ $pad -lt 0 ]] && pad=0
-            printf '%s%*s%s\n' "$art_line" "$pad" "" "$info_line"
+            printf '%s\033[%dG%s\n' "$art_line" "$info_col" "$info_line"
         elif [[ -n "$art_line" ]]; then
             printf '%s\n' "$art_line"
         elif [[ -n "$info_line" ]]; then
-            printf '%*s%s\n' "$info_col" "" "$info_line"
+            printf '\033[%dG%s\n' "$info_col" "$info_line"
         fi
     done
 }
@@ -593,7 +688,7 @@ main() {
     declare -a info_pairs=()
     collect_info info_pairs
 
-    # Try side-by-side display
+    # Try display
     if [[ -n "${image_url:-}" && -s "$tmpfile" ]]; then
         local width="${COLUMNS:-80}"
         if command -v tput &>/dev/null; then
@@ -602,8 +697,57 @@ main() {
             [[ "$tput_w" -gt 0 ]] && width="$tput_w"
         fi
 
+        # Check if requested displayer is available
+        DISPLAYER_AVAILABLE=1
+        if [[ -n "$DISPLAYER" ]]; then
+            case "$DISPLAYER" in
+                icat)
+                    if [[ -z "${KITTY_WINDOW_ID:-}" && "${TERM:-}" != *kitty* ]] && ! command -v chafa &>/dev/null; then
+                        echo "Error: '$DISPLAYER' requested but not available (kitty terminal or chafa required)." >&2
+                        DISPLAYER_AVAILABLE=0
+                    fi
+                    ;;
+                chafa)
+                    if ! command -v chafa &>/dev/null; then
+                        echo "Error: '$DISPLAYER' requested but not installed." >&2
+                        echo "Install chafa (e.g., pacman -S chafa)" >&2
+                        DISPLAYER_AVAILABLE=0
+                    fi
+                    ;;
+                img2txt)
+                    if ! command -v img2txt &>/dev/null; then
+                        echo "Error: '$DISPLAYER' requested but not installed." >&2
+                        echo "Install caca-utils (e.g., pacman -S caca-utils)" >&2
+                        DISPLAYER_AVAILABLE=0
+                    fi
+                    ;;
+                jp2a)
+                    if ! command -v jp2a &>/dev/null; then
+                        echo "Error: '$DISPLAYER' requested but not installed." >&2
+                        echo "Install jp2a (e.g., pacman -S jp2a)" >&2
+                        DISPLAYER_AVAILABLE=0
+                    fi
+                    ;;
+            esac
+        fi
+
+        if [[ $DISPLAYER_AVAILABLE -eq 0 ]]; then
+            # Displayer not available -- show system info without waifu
+            echo ""
+            print_info_fallback info_pairs
+            rm -f "$tmpfile"
+            return
+        fi
+
+        # icat for waifufetch uses text-art side-by-side (native icat
+        # is meant for the standalone `waifu` command, not for fetch display)
+        if [[ "$DISPLAYER" == "icat" ]]; then
+            DISPLAYER=""
+        fi
+
+        # ASCII art display (side-by-side or standalone)
         local info_count=$(( ${#info_pairs[@]} / 2 ))
-        mapfile -t art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" || true)
+        mapfile -t art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
 
         if [[ ${#art_lines[@]} -gt 0 ]]; then
             print_side_by_side art_lines info_pairs

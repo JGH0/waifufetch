@@ -39,20 +39,37 @@ sudo install -m755 waifu /usr/local/bin/waifu
 ## Usage
 
 ```
-Usage: waifufetch [rating]
+Usage: waifufetch [displayer] [rating] [tag] [--noLink] [--debug]
 
 Display system info with a random waifu decoration.
 
-Ratings (optional):
-  safe        safe only (default)
-  suggestive  exact: suggestive only
-  borderline  exact: borderline only
-  explicit    exact: explicit only
+  waifufetch                      - default SFW (safe)
+  waifufetch sfw [tag]            - SFW (default rating, cascading)
+  waifufetch nsfw [tag]           - NSFW (borderline + explicit)
+  waifufetch safe [tag]           - exact: safe only
+  waifufetch suggestive [tag]     - exact: suggestive only
+  waifufetch borderline [tag]     - exact: borderline only
+  waifufetch explicit [tag]       - exact: explicit only
 
-Use waifufetch --setDefaultSFW <rating> to change the default.
+  waifufetch icat                 - force kitty icat image display
+  waifufetch chafa suggestive     - force chafa with suggestive rating
 
-APIs: nekosapi.com v4, waifu.im
-Install chafa, img2txt, or jp2a for waifu ASCII art.
+  waifufetch --setDefaultSFW <r>       - set default SFW rating
+  waifufetch --setDefaultDisplayer <d> - set default image displayer
+  waifufetch --noLink                  - suppress image URL output
+  waifufetch --debug                   - show detailed debug info
+  waifufetch --help                    - show this help
+
+Ratings: safe, suggestive, borderline, explicit
+Displayers: icat, chafa, img2txt, jp2a
+
+Categories: waifu neko kitsune husbando maid uniform selfies
+Characters: raiden-shogun mori-calliope rem ...
+
+APIs: nekosapi.com v4, waifu.im, nekos.best
+Note: Tags and ratings depend on API metadata and are not 100% precise.
+      You may occasionally see unexpected content.
+      Install chafa, img2txt, or jp2a for waifu ASCII art.
 ```
 
 ### Examples
@@ -60,16 +77,19 @@ Install chafa, img2txt, or jp2a for waifu ASCII art.
 ```bash
 waifufetch              # system info + safe waifu
 waifufetch suggestive   # system info + suggestive waifu only
+waifufetch chafa        # use chafa as displayer
+waifufetch icat suggestive neko  # icat display with suggestive rating
 waifufetch --setDefaultSFW borderline  # include up to borderline
+waifufetch --setDefaultDisplayer chafa  # use chafa by default
 ```
 
 ### Companion: `waifu`
 
-The `waifu` command is also included — fetch and display standalone waifu
+The `waifu` command is also included -- fetch and display standalone waifu
 images (not as fetch decoration). See `waifu --help`.
 
 ```
-Usage: waifu [category|rating] [tag] [--debug]
+Usage: waifu [displayer] [category|rating] [tag] [--debug]
 
   waifu                      - default SFW
   waifu sfw [tag]            - SFW (default rating, cascading)
@@ -78,15 +98,25 @@ Usage: waifu [category|rating] [tag] [--debug]
   waifu suggestive [tag]     - exact: suggestive only
   waifu borderline [tag]     - exact: borderline only
   waifu explicit [tag]       - exact: explicit only
-  waifu --setDefaultSFW <r>  - set default SFW rating
-  waifu --debug              - show detailed debug info
-  waifu nsfw --help          - show NSFW-specific help
+
+  waifu icat                 - force kitty icat display
+  waifu chafa suggestive     - force chafa with rating
+
+  waifu --setDefaultSFW <r>       - set default SFW rating
+  waifu --setDefaultDisplayer <d> - set default image displayer
+  waifu --debug                   - show detailed debug info
+  waifu nsfw --help               - show NSFW-specific help
 ```
 
 ## Configuration
 
-Default SFW rating is stored in `/tmp/waifu/default_sfw` and persists until
-reboot.
+Config files are stored in `~/.config/waifu/`:
+
+- `default_sfw` -- stored default SFW rating (safe, suggestive, or borderline)
+- `default_displayer` -- stored default displayer (icat, chafa, img2txt, or jp2a)
+
+Set with `waifufetch --setDefaultSFW <rating>` or
+`waifufetch --setDefaultDisplayer <displayer>`.
 
 ## License
 

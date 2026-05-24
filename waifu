@@ -38,6 +38,20 @@ if [[ -f "$CONFIG_FILE" ]]; then
 fi
 
 # ============================================================
+# Displayer config
+# ============================================================
+WAIFU_DISPLAYER_FILE="$WAIFU_CONFIG_DIR/default_displayer"
+DEFAULT_DISPLAYER=""
+
+if [[ -f "$WAIFU_DISPLAYER_FILE" ]]; then
+    read -r DISPLAYER_VAL < "$WAIFU_DISPLAYER_FILE" || true
+    DISPLAYER_VAL="$(printf '%s' "$DISPLAYER_VAL" | xargs)"
+    case "$DISPLAYER_VAL" in
+        icat|chafa|img2txt|jp2a) DEFAULT_DISPLAYER="$DISPLAYER_VAL" ;;
+    esac
+fi
+
+# ============================================================
 # Parse --debug and --noLink from anywhere
 # ============================================================
 DEBUG=0
@@ -85,6 +99,9 @@ Ratings: safe / suggestive / borderline / explicit
 Default SFW rating: $DEFAULT_SFW
   Set with: waifu --setDefaultSFW <safe|suggestive|borderline>
 
+Default displayer: ${DEFAULT_DISPLAYER:-auto}
+  Set with: waifu --setDefaultDisplayer <icat|chafa|img2txt|jp2a>
+
 APIs used: nekosapi.com v4, waifu.im, nekos.best
 Note: Tag/rating filtering depends on API metadata and is not 100% precise.
 EOF
@@ -105,13 +122,44 @@ Usage: waifu [category|rating] [tag] [--debug]
                                The default CASCADES: borderline
                                includes safe+suggestive+borderline
 
+  waifu --setDefaultDisplayer <d> - set default image displayer
+                               Valid: icat, chafa, img2txt, jp2a
+
   waifu --debug              - show detailed debug info
   waifu nsfw --help          - show NSFW-specific help
+
+You can prefix any invocation with a displayer name:
+  waifu icat                 - force kitty icat display
+  waifu chafa suggestive     - force chafa with rating
 
 APIs used: nekosapi.com v4, waifu.im, nekos.best
 Note: Tags and ratings depend on API metadata and are not 100% precise.
       You may occasionally see unexpected content.
 EOF
+    exit 0
+fi
+
+# ============================================================
+# Set default displayer
+# ============================================================
+if [[ "${1:-}" == "--setDefaultDisplayer" ]]; then
+    if [[ $# -lt 2 ]]; then
+        echo "Usage: waifu --setDefaultDisplayer <displayer>"
+        echo "Valid: icat, chafa, img2txt, jp2a"
+        exit 1
+    fi
+    NEW_DISP="$2"
+    case "$NEW_DISP" in
+        icat|chafa|img2txt|jp2a)
+            mkdir -p "$WAIFU_CONFIG_DIR"
+            echo "$NEW_DISP" > "$WAIFU_DISPLAYER_FILE"
+            echo "Default displayer set to: $NEW_DISP"
+            ;;
+        *)
+            echo "Error: Invalid displayer '$NEW_DISP'. Valid: icat, chafa, img2txt, jp2a" >&2
+            exit 1
+            ;;
+    esac
     exit 0
 fi
 
@@ -151,6 +199,19 @@ if [[ "${1:-}" == "--setDefaultSFW" ]]; then
             ;;
     esac
     exit 0
+fi
+
+# ============================================================
+# Parse positional displayer from first arg
+# ============================================================
+DISPLAYER="$DEFAULT_DISPLAYER"
+if [[ $# -ge 1 ]]; then
+    case "${1}" in
+        icat|chafa|img2txt|jp2a)
+            DISPLAYER="${1}"
+            shift
+            ;;
+    esac
 fi
 
 # ============================================================
@@ -241,6 +302,7 @@ if [[ $DEBUG -eq 1 ]]; then
     echo "[debug] api_rating:   $API_RATING" >&2
     echo "[debug] category:     $CATEGORY" >&2
     echo "[debug] default_sfw:  $DEFAULT_SFW" >&2
+    echo "[debug] displayer:    ${DISPLAYER:-auto}" >&2
 fi
 
 # ============================================================
@@ -453,11 +515,51 @@ if [[ -z "$IMAGE_URL" ]]; then
 fi
 
 # ============================================================
+# Check displayer availability
+# ============================================================
+if [[ -n "$DISPLAYER" ]]; then
+    DISP_AVAILABLE=1
+    case "$DISPLAYER" in
+        icat)
+            if [[ -z "${KITTY_WINDOW_ID:-}" && "${TERM:-}" != *kitty* ]] && ! command -v chafa &>/dev/null; then
+                echo "Error: '$DISPLAYER' requested but not available (kitty terminal or chafa required)." >&2
+                DISP_AVAILABLE=0
+            fi
+            ;;
+        chafa)
+            if ! command -v chafa &>/dev/null; then
+                echo "Error: '$DISPLAYER' requested but not installed." >&2
+                echo "Install chafa (e.g., pacman -S chafa)" >&2
+                DISP_AVAILABLE=0
+            fi
+            ;;
+        img2txt)
+            if ! command -v img2txt &>/dev/null; then
+                echo "Error: '$DISPLAYER' requested but not installed." >&2
+                echo "Install caca-utils (e.g., pacman -S caca-utils)" >&2
+                DISP_AVAILABLE=0
+            fi
+            ;;
+        jp2a)
+            if ! command -v jp2a &>/dev/null; then
+                echo "Error: '$DISPLAYER' requested but not installed." >&2
+                echo "Install jp2a (e.g., pacman -S jp2a)" >&2
+                DISP_AVAILABLE=0
+            fi
+            ;;
+    esac
+    if [[ $DISP_AVAILABLE -eq 0 ]]; then
+        exit 1
+    fi
+fi
+
+# ============================================================
 # Display image - supports multiple terminals, falls back to ASCII
 # ============================================================
 display_image() {
     local file="$1"
     local url="$2"
+    local preferred="${3:-}"
     local width
     if [[ -n "${COLUMNS:-}" ]]; then
         width="$COLUMNS"
@@ -465,6 +567,45 @@ display_image() {
         width="$(tput cols 2>/dev/null || echo 80)"
     fi
 
+    if [[ -n "$preferred" ]]; then
+        # User specified a displayer -- only try that one
+        case "$preferred" in
+            icat)
+                if [[ -n "${KITTY_WINDOW_ID:-}" || "${TERM:-}" == *kitty* ]]; then
+                    if command -v kitty &>/dev/null; then
+                        [[ $DEBUG -eq 1 ]] && echo "[display] kitty icat" >&2
+                        kitty +kitten icat "$file" 2>/dev/null && return 0
+                    fi
+                fi
+                # Fallback: try chafa for icat too (it can display images natively)
+                if command -v chafa &>/dev/null; then
+                    [[ $DEBUG -eq 1 ]] && echo "[display] chafa (icat fallback)" >&2
+                    chafa --symbols=block "$file" 2>/dev/null && return 0
+                fi
+                ;;
+            chafa)
+                if command -v chafa &>/dev/null; then
+                    [[ $DEBUG -eq 1 ]] && echo "[display] chafa" >&2
+                    chafa --symbols=block "$file" 2>/dev/null && return 0
+                fi
+                ;;
+            img2txt)
+                if command -v img2txt &>/dev/null; then
+                    [[ $DEBUG -eq 1 ]] && echo "[display] img2txt" >&2
+                    img2txt -W "$width" "$file" 2>/dev/null | tr -d '\r' | sed \$'s/\x1b\[[su]//g' && return 0
+                fi
+                ;;
+            jp2a)
+                if command -v jp2a &>/dev/null; then
+                    [[ $DEBUG -eq 1 ]] && echo "[display] jp2a" >&2
+                    jp2a --width="$width" "$file" 2>/dev/null && return 0
+                fi
+                ;;
+        esac
+        return 1
+    fi
+
+    # Auto-detect: no preference specified
     # 1. Kitty native icat
     if [[ -n "${KITTY_WINDOW_ID:-}" || "${TERM:-}" == *kitty* ]]; then
         if command -v kitty &>/dev/null; then
@@ -511,7 +652,7 @@ display_image() {
     return 1
 }
 
-display_image "$IMAGE_FILE" "$IMAGE_URL"
+display_image "$IMAGE_FILE" "$IMAGE_URL" "$DISPLAYER"
 if [[ $DEBUG -eq 1 ]]; then
     echo "[debug] url:   $IMAGE_URL" >&2
     echo "[debug] cache: $FROM_CACHE" >&2

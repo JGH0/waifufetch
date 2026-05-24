@@ -94,17 +94,40 @@ if [[ $HELP_REQUESTED -eq 1 ]]; then
     if [[ $HELP_NSFW -eq 1 ]]; then
         cat <<EOF
 === NSFW mode ===
-NSFW tags:     ero, ecchi, hentai, oppai, ass, milf, oral, paizuri
-SFW tags:      waifu, maid, uniform, selfies, neko, kitsune, husbando
-Characters:    raiden-shogun, mori-calliope, rem, marin-kitagawa,
-               genshin-impact, kamisato-ayaka
-GIFs:          lurk, shoot, sleep, clap, shrug, stare, wave, poke,
-               confused, smile, peck, wink, sip, blush, smug, tickle,
-               yeet, think, highfive, feed, wag, bite
+Usage: waifu [displayer] [category|rating] [tag] [--noLink] [--debug]
 
+  waifu nsfw [tag]                   - NSFW (borderline + explicit)
+  waifu borderline [tag]             - exact: borderline only
+  waifu explicit [tag]               - exact: explicit only
+  waifu suggestive [tag]             - exact: suggestive only
+
+  waifu icat nsfw                    - force kitty icat with NSFW
+  waifu chafa explicit neko          - force chafa with explicit + tag
+
+  waifu --setDefaultDisplayer <d>    - set default image displayer
+                                       Valid: icat, chafa, img2txt, jp2a
+
+  waifu --noLink                     - suppress image URL output
+  waifu --debug                      - show detailed debug info
+
+Displayers: icat, chafa, img2txt, jp2a
+  icat     native image display (kitty terminal)
+  chafa    colored text-art via chafa library
+  img2txt  colored ASCII art (caca-utils)
+  jp2a     black & white ASCII art
+  (default: auto-detect)
+
+NSFW tags:  ero, ecchi, hentai, oppai, ass, milf, oral, paizuri
+SFW tags:   waifu, neko, kitsune, husbando, maid, uniform, selfies
+Characters: raiden-shogun, mori-calliope, rem, marin-kitagawa,
+            genshin-impact, kamisato-ayaka
+GIFs:       lurk, shoot, sleep, clap, shrug, stare, wave, poke,
+            confused, smile, peck, wink, sip, blush, smug, tickle,
+            yeet, think, highfive, feed, wag, bite
 
 Ratings: safe, suggestive, borderline, explicit (cascading)
-  waifu borderline neko  -- neko tag with borderline rating
+  borderline includes: safe + suggestive + borderline content
+  nsfw mode uses: borderline + explicit
 
 Default SFW rating: $DEFAULT_SFW
   Set with: waifu --setDefaultSFW <safe|suggestive|borderline>
@@ -333,25 +356,6 @@ if [[ $DEBUG -eq 1 ]]; then
 fi
 
 # ============================================================
-# Check if user is "came" (easter egg)
-# ============================================================
-IS_CAME=0
-CAME_USER="$(whoami 2>/dev/null || echo "${USER:-$LOGNAME}")"
-if [[ "$CAME_USER" == "came" ]]; then
-    IS_CAME=1
-fi
-
-# Came triggers on nsfw mode, borderline, or suggestive (not safe, not explicit-direct)
-# The standard APIs have enough explicit content; came's e621 is useful for the
-# grey-area ratings where nekosapi might be sparse.
-CAME_TRIGGER=0
-if [[ $IS_CAME -eq 1 ]]; then
-    if [[ "$MODE" == "nsfw" || "$RATING_LEVEL" == "borderline" || "$RATING_LEVEL" == "suggestive" ]]; then
-        CAME_TRIGGER=1
-    fi
-fi
-
-# ============================================================
 # Cache setup
 # ============================================================
 CAN_CACHE=0
@@ -400,28 +404,6 @@ if [[ -z "$IMAGE_URL" ]]; then
             break
         fi
     done
-
-    # ---- Came easter egg: e621 for femboy/trap nsfw ----
-    if [[ $CAME_TRIGGER -eq 1 ]]; then
-        SEARCH_TAG="$CATEGORY"
-        [[ "$CATEGORY" == "waifu" ]] && SEARCH_TAG="femboy"
-        UA="WaifuScript/1.0"
-        FILE_EXT=""
-        ATTEMPTS=0
-        while [[ "$FILE_EXT" != "png" && "$FILE_EXT" != "jpg" && "$FILE_EXT" != "jpeg" && "$FILE_EXT" != "gif" ]]; do
-            [[ $ATTEMPTS -ge 5 ]] && break
-            ATTEMPTS=$((ATTEMPTS + 1))
-            JSON="$(curl -sL --max-time 8 -H "User-Agent: $UA" \
-                "https://e621.net/posts/random.json?tags=${SEARCH_TAG}+rating:explicit")"
-            IMAGE_URL="$(printf '%s' "$JSON" | jq -r '.post.file.url // empty' 2>/dev/null)"
-            FILE_EXT="$(printf '%s' "$JSON" | jq -r '.post.file.ext // empty' 2>/dev/null)"
-        done
-        if [[ -n "$IMAGE_URL" ]]; then
-            SOURCE_USED="e621"
-        else
-            SOURCE_FAILED="${SOURCE_FAILED}e621 "
-        fi
-    fi
 
     # ---- nekosapi v4 - primary source ----
     if [[ -z "$IMAGE_URL" && $IS_GIF -eq 0 ]]; then

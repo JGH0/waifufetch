@@ -9,6 +9,9 @@
 set -euo pipefail
 
 # ============================================================
+VERSION="1.1.0"
+
+# ============================================================
 # Tag lists (not 100% precise - the APIs decide what fits)
 # ============================================================
 WIM_SFW=(waifu maid uniform selfies)
@@ -52,16 +55,20 @@ if [[ -f "$WAIFU_DISPLAYER_FILE" ]]; then
 fi
 
 # ============================================================
-# Parse --debug and --noLink from anywhere
+# Parse --debug, --version, and --noLink from anywhere
 # ============================================================
 DEBUG=0
 NO_LINK=0
 FILTERED_ARGS=()
 for arg in "$@"; do
     case "$arg" in
-        --debug) DEBUG=1 ;;
-        --noLink) NO_LINK=1 ;;
-        *) FILTERED_ARGS+=("$arg") ;;
+        --debug)   DEBUG=1 ;;
+        --noLink)  NO_LINK=1 ;;
+        -v|--version)
+            echo "waifu v$VERSION"
+            exit 0
+            ;;
+        *)         FILTERED_ARGS+=("$arg") ;;
     esac
 done
 set -- "${FILTERED_ARGS[@]}"
@@ -87,14 +94,17 @@ if [[ $HELP_REQUESTED -eq 1 ]]; then
     if [[ $HELP_NSFW -eq 1 ]]; then
         cat <<EOF
 === NSFW mode ===
-Tags: ${WIM_NSFW[*]}
-For user 'came': uses e621 with femboy/trap tags
-SFW tags: ${WIM_SFW[*]}    ${NB_STATIC[*]}
-GIFs: ${NB_GIFS[*]}
-Characters: ${WIM_CHARS[*]}
+NSFW tags:     ero, ecchi, hentai, oppai, ass, milf, oral, paizuri
+SFW tags:      waifu, maid, uniform, selfies, neko, kitsune, husbando
+Characters:    raiden-shogun, mori-calliope, rem, marin-kitagawa,
+               genshin-impact, kamisato-ayaka
+GIFs:          lurk, shoot, sleep, clap, shrug, stare, wave, poke,
+               confused, smile, peck, wink, sip, blush, smug, tickle,
+               yeet, think, highfive, feed, wag, bite
 
-Ratings: safe / suggestive / borderline / explicit
-  Use like: waifu borderline neko
+
+Ratings: safe, suggestive, borderline, explicit (cascading)
+  waifu borderline neko  -- neko tag with borderline rating
 
 Default SFW rating: $DEFAULT_SFW
   Set with: waifu --setDefaultSFW <safe|suggestive|borderline>
@@ -102,35 +112,52 @@ Default SFW rating: $DEFAULT_SFW
 Default displayer: ${DEFAULT_DISPLAYER:-auto}
   Set with: waifu --setDefaultDisplayer <icat|chafa|img2txt|jp2a>
 
-APIs used: nekosapi.com v4, waifu.im, nekos.best
-Note: Tag/rating filtering depends on API metadata and is not 100% precise.
+APIs: nekosapi.com v4, waifu.im, nekos.best
+Note: Tag/rating filtering depends on API metadata and is not 100%
+      precise. You may occasionally see unexpected content.
 EOF
         exit 0
     fi
     cat <<EOF
-Usage: waifu [category|rating] [tag] [--debug]
-  waifu                      - default SFW ($DEFAULT_SFW)
-  waifu sfw [tag]            - SFW (default rating, cascading)
-  waifu nsfw [tag]           - NSFW (borderline + explicit)
-  waifu safe [tag]           - exact: safe only
-  waifu suggestive [tag]     - exact: suggestive only
-  waifu borderline [tag]     - exact: borderline only
-  waifu explicit [tag]       - exact: explicit only
+Usage: waifu [displayer] [category|rating] [tag] [--debug]
+  waifu                              - default SFW ($DEFAULT_SFW)
+  waifu sfw [tag]                    - SFW (default rating, cascading)
+  waifu nsfw [tag]                   - NSFW (borderline + explicit)
+  waifu safe [tag]                   - exact: safe only
+  waifu suggestive [tag]             - exact: suggestive only
+  waifu borderline [tag]             - exact: borderline only
+  waifu explicit [tag]               - exact: explicit only
 
-  waifu --setDefaultSFW <r>  - set default SFW rating
-                               Valid: safe, suggestive, borderline
-                               The default CASCADES: borderline
-                               includes safe+suggestive+borderline
+  waifu icat                         - force kitty icat display
+  waifu chafa suggestive             - force chafa with rating
+  waifu jp2a borderline neko         - force jp2a with rating + tag
 
-  waifu --setDefaultDisplayer <d> - set default image displayer
-                               Valid: icat, chafa, img2txt, jp2a
+  waifu --setDefaultSFW <r>          - set default SFW rating
+                                       Valid: safe, suggestive,
+                                       borderline (cascades:
+                                       borderline includes all
+                                       safe + suggestive + borderline)
 
-  waifu --debug              - show detailed debug info
-  waifu nsfw --help          - show NSFW-specific help
+  waifu --setDefaultDisplayer <d>    - set default image displayer
+                                       Valid: icat, chafa, img2txt, jp2a
 
-You can prefix any invocation with a displayer name:
-  waifu icat                 - force kitty icat display
-  waifu chafa suggestive     - force chafa with rating
+  waifu --debug                      - show detailed debug info
+  waifu -v, --version                - show version and exit
+  waifu nsfw --help                  - show NSFW-specific help
+
+Displayers: icat, chafa, img2txt, jp2a
+  icat     native image display (kitty terminal)
+  chafa    colored text-art via chafa library
+  img2txt  colored ASCII art (caca-utils)
+  jp2a     black & white ASCII art
+  (default: auto-detect)
+
+Categories: waifu, neko, kitsune, husbando, maid, uniform, selfies
+Characters: raiden-shogun, mori-calliope, rem, marin-kitagawa,
+           genshin-impact, kamisato-ayaka
+GIFs:      lurk, shoot, sleep, clap, shrug, stare, wave, poke,
+           confused, smile, peck, wink, sip, blush, smug, tickle,
+           yeet, think, highfive, feed, wag, bite
 
 APIs used: nekosapi.com v4, waifu.im, nekos.best
 Note: Tags and ratings depend on API metadata and are not 100% precise.

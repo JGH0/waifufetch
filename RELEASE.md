@@ -1,6 +1,6 @@
-# Release — Publishing waifufetch
+# Release - Publishing waifufetch
 
-This document covers the release process for waifufetch — bumping the version,
+This document covers the release process for waifufetch - bumping the version,
 pushing to GitHub, and publishing to the Arch User Repository (AUR).
 
 ## Contents

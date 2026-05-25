@@ -64,6 +64,7 @@ update_version_in() {
 
 # ---- Step 1: Update VERSION and PKGBUILD with placeholder SHA ----
 echo "==> Updating VERSION in scripts to v$VERSION..."
+update_version_in "libwaifu.sh"
 update_version_in "waifu"
 update_version_in "waifufetch"
 

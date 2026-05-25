@@ -17,6 +17,7 @@ sha256sums=('4681109ee8cca625dc58d1b49709dd1f61a97ed2932a0d174fbee962d15939a3')
 
 package() {
     cd "$srcdir/$pkgname-$pkgver"
+    install -Dm755 libwaifu.sh "$pkgdir/usr/bin/libwaifu.sh"
     install -Dm755 waifu "$pkgdir/usr/bin/waifu"
     install -Dm755 waifufetch "$pkgdir/usr/bin/waifufetch"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

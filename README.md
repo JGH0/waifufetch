@@ -58,17 +58,21 @@ sudo pacman -S curl jq chafa
 #### 4. Install commands
 
 ```bash
-sudo install -m755 waifufetch /usr/local/bin/waifufetch
+sudo install -m755 libwaifu.sh /usr/local/bin/libwaifu.sh
 sudo install -m755 waifu /usr/local/bin/waifu
+sudo install -m755 waifufetch /usr/local/bin/waifufetch
 ```
 
 #### If `install` is unavailable:
 
 ```bash
-sudo cp waifufetch /usr/local/bin/
+sudo cp libwaifu.sh /usr/local/bin/
 sudo cp waifu /usr/local/bin/
-sudo chmod +x /usr/local/bin/waifufetch /usr/local/bin/waifu
+sudo cp waifufetch /usr/local/bin/
+sudo chmod +x /usr/local/bin/libwaifu.sh /usr/local/bin/waifu /usr/local/bin/waifufetch
 ```
+
+`libwaifu.sh` is sourced by both commands and must be in the same directory.
 
 ## Usage
 
@@ -88,23 +92,24 @@ Display system info with a random waifu decoration.
   waifufetch icat                 - force kitty icat image display
   waifufetch chafa suggestive     - force chafa with suggestive rating
 
-  waifufetch --setDefaultSFW <r>       - set default SFW rating
-  waifufetch --setDefaultDisplayer <d> - set default image displayer
-  waifufetch -i <file>               - display a local image/GIF file with system info
-  waifufetch --noLink                  - suppress image URL output
-  waifufetch --debug                   - show detailed debug info
-  waifufetch --help                    - show this help
+  waifufetch --setDefaultSFW <r>          - set default SFW rating
+  waifufetch --setDefaultDisplayer <d>    - set default image displayer
+  waifufetch -i <file>                    - display a local image/GIF file with system info
+  waifufetch --noLink                     - suppress image URL output
+  waifufetch --debug                      - show detailed debug info
+  waifufetch --help                       - show this help
+  waifufetch -v, --version                - show version and exit
 
 Ratings: safe, suggestive, borderline, explicit
 Displayers: icat, chafa, img2txt, jp2a
 
 Categories: waifu neko kitsune husbando maid uniform selfies
-Characters: raiden-shogun mori-calliope rem ...
+Characters: raiden-shogun mori-calliope rem marin-kitagawa ...
 
 APIs: nekosapi.com v4, waifu.im, nekos.best
 Note: Tags and ratings depend on API metadata and are not 100% precise.
-      You may occasionally see unexpected content.
-      Install chafa, img2txt, or jp2a for waifu ASCII art.
+      Returned images are verified to match the requested category tag.
+      Install chafa for GIF animation support.
 ```
 
 ### Examples
@@ -127,6 +132,11 @@ waifufetch -i ~/Pictures/waifu.gif  # display a local file with system info
 
 ### Companion: `waifu`
 
+Both `waifu` and `waifufetch` share the same codebase via `libwaifu.sh`.
+They use the same API fetching, caching, and display logic. The only
+difference is output format — `waifu` shows the image full-screen, while
+`waifufetch` shows it side-by-side with system info.
+
 The `waifu` command is also included -- fetch and display standalone waifu
 images (not as fetch decoration). See `waifu --help`.
 
@@ -144,11 +154,13 @@ Usage: waifu [displayer] [category|rating] [tag] [--debug]
   waifu icat                 - force kitty icat display
   waifu chafa suggestive     - force chafa with rating
 
-  waifu -i <file>                 - display a local image/GIF file
-  waifu --setDefaultSFW <r>       - set default SFW rating
-  waifu --setDefaultDisplayer <d> - set default image displayer
-  waifu --debug                   - show detailed debug info
-  waifu nsfw --help               - show NSFW-specific help
+  waifu -i <file>                    - display a local image/GIF file
+  waifu --setDefaultSFW <r>          - set default SFW rating
+  waifu --setDefaultDisplayer <d>    - set default image displayer
+  waifu --noLink                     - suppress image URL output
+  waifu --debug                      - show detailed debug info
+  waifu -v, --version                - show version and exit
+  waifu nsfw --help                  - show NSFW-specific help
 ```
 
 ## Configuration

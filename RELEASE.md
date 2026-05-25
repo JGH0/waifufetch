@@ -20,8 +20,9 @@ pushing to GitHub, and publishing to the Arch User Repository (AUR).
 |------|------|
 | `PKGBUILD` | Arch Linux build recipe (pkgver, sha256sums) |
 | `.SRCINFO` | AUR metadata (regenerate with `makepkg --printsrcinfo > .SRCINFO`) |
-| `waifu` | Standalone image fetcher (VERSION at top) |
-| `waifufetch` | Main fetch script (VERSION at top) |
+| `libwaifu.sh` | Shared library (VERSION at top, sourced by both) |
+| `waifu` | Standalone image fetcher (sources libwaifu.sh) |
+| `waifufetch` | Fetch + system info (sources libwaifu.sh) |
 
 ## Versioning
 
@@ -32,8 +33,9 @@ pushing to GitHub, and publishing to the Arch User Repository (AUR).
 | **Major** (1.0.0 -> 2.0.0) | Breaking changes |
 
 Update `VERSION` in:
-- `waifu` (top of file)
-- `waifufetch` (top of file)
+- `libwaifu.sh` (top of file)
+- `waifu` (sources libwaifu.sh)
+- `waifufetch` (sources libwaifu.sh)
 
 Update `pkgver` in:
 - `PKGBUILD` (handled by release.sh)
@@ -64,13 +66,14 @@ The automated script handles everything:
 
 This will:
 
-1. Update `pkgver` in `PKGBUILD`
-2. Download the tarball from GitHub and compute SHA256
-3. Regenerate `.SRCINFO` with `makepkg --printsrcinfo`
-4. Commit the PKGBUILD and .SRCINFO changes
-5. Create a git tag `v1.1.0`
-6. Push to GitHub (`origin main`, `origin v1.1.0`)
-7. Clone the AUR repo, copy PKGBUILD + .SRCINFO, commit, and push to AUR
+1. Update `VERSION` in `libwaifu.sh`, `waifu`, `waifufetch`, and `pkgver` in `PKGBUILD`
+2. Commit and push the tag to GitHub (so the archive URL is valid)
+3. Download the tarball from the now-existing tag and compute the real SHA256
+4. Update `PKGBUILD` and `.SRCINFO` with the correct SHA
+5. Push the SHA fix to GitHub + AUR
+
+This two-commit flow avoids GitHub's archive regeneration issue where
+archives for the same tag can have different SHA256 hashes at different times.
 
 ## Release: Manual steps
 
@@ -79,7 +82,7 @@ If you prefer to do it manually or the script fails:
 ### 1. Commit and tag
 
 ```bash
-git add waifu waifufetch PKGBUILD .SRCINFO README.md
+git add libwaifu.sh waifu waifufetch PKGBUILD .SRCINFO README.md
 git commit -m "v1.1.0: feature description"
 git tag v1.1.0
 ```

@@ -142,16 +142,41 @@ if [[ $HELP_REQUESTED -eq 1 ]]; then
         if [[ "$arg" == "nsfw" ]]; then
             cat <<EOF
 === NSFW mode ===
-NSFW tags:     ero, ecchi, hentai, oppai, ass, milf, oral, paizuri
-SFW tags:      waifu, maid, uniform, selfies, neko, kitsune, husbando
-Characters:    raiden-shogun, mori-calliope, rem, marin-kitagawa,
-               genshin-impact, kamisato-ayaka
-GIFs:          lurk, shoot, sleep, clap, shrug, stare, wave, poke,
-               confused, smile, peck, wink, sip, blush, smug, tickle,
-               yeet, think, highfive, feed, wag, bite
+Usage: waifufetch [displayer] [category|rating] [tag] [--noLink] [--debug]
+
+  waifufetch nsfw [tag]               - NSFW (borderline + explicit)
+  waifufetch borderline [tag]         - exact: borderline only
+  waifufetch explicit [tag]           - exact: explicit only
+  waifufetch suggestive [tag]         - exact: suggestive only
+
+  waifufetch icat nsfw                - force kitty icat with NSFW
+  waifufetch chafa explicit neko      - force chafa with explicit + tag
+
+  waifufetch --setDefaultDisplayer <d>  - set default image displayer
+                                          Valid: icat, chafa, img2txt,
+                                          jp2a
+
+  waifufetch --noLink                 - suppress image URL output
+  waifufetch --debug                  - show detailed debug info
+
+Displayers: icat, chafa, img2txt, jp2a
+  icat     native image display (kitty terminal)
+  chafa    colored text-art via chafa library
+  img2txt  colored ASCII art (caca-utils)
+  jp2a     black & white ASCII art
+  (default: auto-detect)
+
+NSFW tags:  ero, ecchi, hentai, oppai, ass, milf, oral, paizuri
+SFW tags:   waifu, neko, kitsune, husbando, maid, uniform, selfies
+Characters: raiden-shogun, mori-calliope, rem, marin-kitagawa,
+            genshin-impact, kamisato-ayaka
+GIFs:       lurk, shoot, sleep, clap, shrug, stare, wave, poke,
+            confused, smile, peck, wink, sip, blush, smug, tickle,
+            yeet, think, highfive, feed, wag, bite
 
 Ratings: safe, suggestive, borderline, explicit (cascading)
-  waifufetch borderline neko  -- neko tag with borderline rating
+  borderline includes: safe + suggestive + borderline content
+  nsfw mode uses: borderline + explicit
 
 Default SFW rating: $DEFAULT_SFW
   Set with: waifufetch --setDefaultSFW <safe|suggestive|borderline>
@@ -311,17 +336,6 @@ else
         borderline) API_RATING="safe,suggestive,borderline" ;;
         explicit)   API_RATING="safe,suggestive,borderline,explicit" ;;
     esac
-fi
-
-# ============================================================
-# Came easter egg
-# ============================================================
-CAME_USER="$(whoami 2>/dev/null || echo "${USER:-$LOGNAME}")"
-CAME_TRIGGER=0
-if [[ "$CAME_USER" == "came" ]]; then
-    if [[ "$MODE" == "nsfw" || "$RATING_LEVEL" == "borderline" || "$RATING_LEVEL" == "suggestive" ]]; then
-        CAME_TRIGGER=1
-    fi
 fi
 
 # ============================================================
@@ -637,24 +651,6 @@ fetch_waifu() {
     for t in "${NB_GIFS[@]}"; do
         [[ "$t" == "$category" ]] && { is_gif=1; break; }
     done
-
-    # ---- Came: e621 for femboy/trap ----
-    if [[ $CAME_TRIGGER -eq 1 ]]; then
-        local search_tag="$category"
-        [[ "$category" == "waifu" ]] && search_tag="femboy"
-        local ua="WaifuFetchScript/1.0"
-        local file_ext=""
-        local attempts=0
-        while [[ "$file_ext" != "png" && "$file_ext" != "jpg" && "$file_ext" != "jpeg" && "$file_ext" != "gif" ]]; do
-            [[ $attempts -ge 5 ]] && break
-            attempts=$((attempts + 1))
-            local json
-            json="$(curl -sL --max-time 8 -H "User-Agent: $ua" \
-                "https://e621.net/posts/random.json?tags=${search_tag}+rating:explicit")"
-            url="$(printf '%s' "$json" | jq -r '.post.file.url // empty' 2>/dev/null)"
-            file_ext="$(printf '%s' "$json" | jq -r '.post.file.ext // empty' 2>/dev/null)"
-        done
-    fi
 
     # ---- nekosapi v4 ----
     if [[ -z "$url" && $is_gif -eq 0 ]]; then

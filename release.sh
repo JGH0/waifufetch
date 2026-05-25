@@ -22,10 +22,21 @@ fi
 VERSION="$1"
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 AUR_TMP=""
+COMMITTED=0  # tracks if we made a commit that needs rolling back
+
+rollback() {
+    if [[ $COMMITTED -eq 1 ]]; then
+        echo "Release failed! Rolling back version commit..." >&2
+        git reset --soft HEAD~1
+        git checkout -- PKGBUILD .SRCINFO waifu waifufetch libwaifu.sh 2>/dev/null || true
+        echo "Rolled back. Files restored to pre-release state." >&2
+    fi
+}
 
 cleanup() {
     [[ -n "$AUR_TMP" && -d "$AUR_TMP" ]] && rm -rf "$AUR_TMP"
 }
+trap rollback ERR
 trap cleanup EXIT
 
 cd "$REPO_DIR"
@@ -77,8 +88,9 @@ sed -i "s/sha256sums=('.*')/sha256sums=('000000000000000000000000000000000000000
 
 # ---- Step 2: Commit and push tag to GitHub ----
 echo "==> Committing release v$VERSION..."
-git add PKGBUILD .SRCINFO waifu waifufetch
+git add libwaifu.sh PKGBUILD .SRCINFO waifu waifufetch
 git commit -m "aur release v$VERSION"
+COMMITTED=1
 
 # Remove old tag if it exists
 if git rev-parse "v$VERSION" &>/dev/null; then

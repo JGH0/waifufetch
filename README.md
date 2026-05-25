@@ -109,7 +109,9 @@ waifufetch --setDefaultDisplayer chafa  # use chafa by default
 ```
 <img width="887" height="428" alt="image" src="https://github.com/user-attachments/assets/f07a4e5d-f312-43e7-a048-501ec5ac18b3" />
 
-<img width="890" height="882" alt="image" src="https://github.com/user-attachments/assets/038193f0-eb9f-40b2-841a-59729b4934e4" />
+<img width="auto" height="500" alt="image" src="https://github.com/user-attachments/assets/038193f0-eb9f-40b2-841a-59729b4934e4" />
+
+<img width="auto" height="500" alt="image" src="https://github.com/user-attachments/assets/d3a9a97d-65e1-45d1-8507-f9e092645dd1" />
 
 
 ### Companion: `waifu`

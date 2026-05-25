@@ -5,11 +5,9 @@
 #   Example: ./release.sh 1.1.0
 #
 # This script:
-#   1. Updates PKGBUILD and .SRCINFO with the new version and SHA256
-#   2. Commits the changes
-#   3. Creates a git tag
-#   4. Pushes to GitHub
-#   5. Pushes PKGBUILD + .SRCINFO to AUR
+#   1. Updates VERSION in waifu, waifufetch, and PKGBUILD
+#   2. Downloads tarball and computes SHA256 for PKGBUILD
+#   3. Commits, tags, and pushes to GitHub + AUR
 
 set -euo pipefail
 
@@ -43,6 +41,32 @@ if ! git diff --cached --quiet; then
     exit 1
 fi
 
+# ---- Helper: update VERSION in a file ----
+update_version_in() {
+    local file="$1"
+    if [[ ! -f "$file" ]]; then
+        echo "    (skipped: $file not found)"
+        return
+    fi
+    local current
+    current=$(grep -m1 '^[[:space:]]*VERSION="' "$file" 2>/dev/null | sed 's/.*VERSION="\([^"]*\)".*/\1/' || true)
+    if [[ -z "$current" ]]; then
+        echo "    (skipped: no VERSION= in $file)"
+        return
+    fi
+    if [[ "$current" == "$VERSION" ]]; then
+        echo "    Already v$VERSION: $file"
+    else
+        sed -i "s/^\([[:space:]]*\)VERSION=\"[^\"]*\"/\1VERSION=\"$VERSION\"/" "$file"
+        echo "    Updated v$current -> v$VERSION: $file"
+    fi
+}
+
+# ---- Update VERSION in all script files ----
+echo "==> Updating VERSION in scripts to v$VERSION..."
+update_version_in "waifu"
+update_version_in "waifufetch"
+
 # ---- Update PKGBUILD ----
 echo "==> Updating PKGBUILD to v$VERSION..."
 sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
@@ -71,7 +95,7 @@ fi
 
 # ---- Commit and tag ----
 echo "==> Committing release v$VERSION..."
-git add PKGBUILD .SRCINFO
+git add PKGBUILD .SRCINFO waifu waifufetch
 git commit -m "aur release v$VERSION"
 git tag "v$VERSION"
 

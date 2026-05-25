@@ -53,6 +53,14 @@ sudo install -m755 waifufetch /usr/local/bin/waifufetch
 sudo install -m755 waifu /usr/local/bin/waifu
 ```
 
+#### If `install` is unavailable:
+
+```bash
+sudo cp waifufetch /usr/local/bin/
+sudo cp waifu /usr/local/bin/
+sudo chmod +x /usr/local/bin/waifufetch /usr/local/bin/waifu
+```
+
 ## Usage
 
 ```

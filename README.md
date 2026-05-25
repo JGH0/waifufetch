@@ -38,11 +38,36 @@ yay -S waifufetch
 paru -S waifufetch
 ```
 
-### Manual
+
+### Manual Install
+
+#### 1. Clone repository
+
+```bash
+git clone https://github.com/JGH0/waifufetch.git
+cd waifufetch
+```
+
+#### 3. Install dependencies
+
+```bash
+# use your prefered package manager
+sudo pacman -S curl jq chafa
+```
+
+#### 4. Install commands
 
 ```bash
 sudo install -m755 waifufetch /usr/local/bin/waifufetch
 sudo install -m755 waifu /usr/local/bin/waifu
+```
+
+#### If `install` is unavailable:
+
+```bash
+sudo cp waifufetch /usr/local/bin/
+sudo cp waifu /usr/local/bin/
+sudo chmod +x /usr/local/bin/waifufetch /usr/local/bin/waifu
 ```
 
 ## Usage
@@ -93,6 +118,12 @@ waifufetch --setDefaultSFW borderline  # include up to borderline
 waifufetch --setDefaultDisplayer chafa  # use chafa by default
 waifufetch -i ~/Pictures/waifu.gif  # display a local file with system info
 ```
+<img width="887" height="428" alt="image" src="https://github.com/user-attachments/assets/f07a4e5d-f312-43e7-a048-501ec5ac18b3" />
+
+<img width="auto" height="500" alt="image" src="https://github.com/user-attachments/assets/038193f0-eb9f-40b2-841a-59729b4934e4" />
+
+<img width="auto" height="500" alt="image" src="https://github.com/user-attachments/assets/d3a9a97d-65e1-45d1-8507-f9e092645dd1" />
+
 
 ### Companion: `waifu`
 

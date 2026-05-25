@@ -489,6 +489,19 @@ collect_info() {
 }
 
 # ============================================================
+# Check if a file is an animated GIF
+# ============================================================
+is_gif_file() {
+    local f="$1"
+    [[ -f "$f" ]] || return 1
+    [[ "${f,,}" == *.gif ]] && return 0
+    local magic
+    magic=$(dd if="$f" bs=1 count=3 2>/dev/null)
+    [[ "$magic" == "GIF" ]] && return 0
+    return 1
+}
+
+# ============================================================
 # Convert image to text (captured line by line)
 # ============================================================
 image_to_text() {
@@ -794,17 +807,179 @@ main() {
             DISPLAYER=""
         fi
 
-        # ASCII art display (side-by-side or standalone)
-        local info_count=$(( ${#info_pairs[@]} / 2 ))
-        mapfile -t art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
+        # ---- GIF: animate first, then system info below ----
+        # ---- Otherwise: static side-by-side ----
+        if is_gif_file "$tmpfile"; then
+            local frame_dir
+            frame_dir="$(mktemp -d /tmp/waifu-frames-XXXXXX 2>/dev/null)"
+            local frames_extracted=0
+            if command -v convert &>/dev/null; then
+                convert "$tmpfile" -coalesce "${frame_dir}/frame-%04d.png" 2>/dev/null && frames_extracted=1
+            elif command -v ffmpeg &>/dev/null; then
+                ffmpeg -i "$tmpfile" -vsync vfr "${frame_dir}/frame-%04d.png" 2>/dev/null && frames_extracted=1
+            fi
 
-        if [[ ${#art_lines[@]} -gt 0 ]]; then
-            print_side_by_side art_lines info_pairs
-            [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+            local frames=()
+            [[ $frames_extracted -eq 1 ]] && frames=("$frame_dir"/*.png)
+            local frame_count=${#frames[@]}
+
+            if [[ $frame_count -gt 1 ]] && command -v chafa &>/dev/null; then
+                local gif_w=$((width / 3))
+                [[ $gif_w -lt 15 ]] && gif_w=15
+                [[ $gif_w -gt 40 ]] && gif_w=40
+                local gif_h=$((gif_w * 2 / 3))
+                [[ $gif_h -lt 8 ]] && gif_h=8
+
+                # Make animation height fill the info text area
+                local info_count=$(( ${#info_pairs[@]} / 2 ))
+                # Pre-render all frames, pad to fill info text height
+                local frame_art=()
+                local frame_lines=$info_count
+                local art_width=0
+                for ((idx=0; idx<frame_count; idx++)); do
+                    local out
+                    out=$(chafa --format=symbols --symbols=block \
+                        --size="${gif_w}x${gif_h}" \
+                        "${frames[$idx]}" 2>/dev/null || true)
+                    mapfile -t lines <<< "$out"
+                    local nl=${#lines[@]}
+                    # Pad with empty lines to match info_count
+                    while (( nl < info_count )); do
+                        lines+=("")
+                        ((nl++))
+                    done
+                    frame_art+=("${lines[@]}")
+                    if [[ $idx -eq 0 ]]; then
+                        for line in "${lines[@]}"; do
+                            local clean=$(printf '%s' "$line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/[[:space:]]*$//')
+                            local llen=${#clean}
+                            [[ $llen -gt $art_width ]] && art_width=$llen
+                        done
+                    fi
+                done
+                [[ $art_width -lt 1 ]] && art_width=$gif_w
+
+                # Build formatted info lines (colored, like print_side_by_side)
+                local reset=$'\033[0m'
+                local key_color=$'\033[1;36m'
+                local info_lines=()
+                for ((i=0; i<info_count; i++)); do
+                    local key="${info_pairs[$((i*2))]}"
+                    local val="${info_pairs[$((i*2+1))]}"
+                    info_lines+=("${key_color}${key}:${reset} ${val}")
+                done
+                local info_col=$((art_width + 2))
+                local display_lines=$frame_lines
+
+                # Frame delay (centiseconds)
+                local frame_delay=5
+                if command -v identify &>/dev/null; then
+                    local raw
+                    raw=$(identify -format "%T" "${frames[0]}" 2>/dev/null || echo "5")
+                    [[ "$raw" =~ ^[0-9]+$ && "$raw" -gt 0 ]] && frame_delay="$raw"
+                fi
+                local sleep_sec
+                if ((frame_delay < 10)); then
+                    sleep_sec="0.0${frame_delay}"
+                elif ((frame_delay < 100)); then
+                    sleep_sec="0.${frame_delay}"
+                else
+                    local int_part=$((frame_delay / 100))
+                    local frac_part=$((frame_delay % 100))
+                    printf -v sleep_sec "%d.%02d" "$int_part" "$frac_part"
+                fi
+
+                # Print blank lines for animation area
+                local i
+                for ((i=0; i<display_lines; i++)); do echo; done
+                # Print URL below
+                [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+
+                # Move cursor back to top
+                local url_line=$([[ $NO_LINK -eq 0 ]] && echo 1 || echo 0)
+                local total_below=$((url_line))
+                printf '\033[%dA' "$((display_lines + total_below))"
+
+                TT_SAVED=$(stty -g 2>/dev/null || true)
+                stty -echo -icanon 2>/dev/null || true
+                printf '\033[?25l'
+
+                local keep_going=true
+                while $keep_going; do
+                    for ((idx=0; idx<frame_count; idx++)); do
+                        if read -t "$sleep_sec" -N 1 -s; then
+                            keep_going=false
+                            break
+                        fi
+
+                        # Print side-by-side: art | info
+                        local art_start=$((idx * frame_lines))
+                        for ((i=0; i<display_lines; i++)); do
+                            local art="${frame_art[$((art_start + i))]:-}"
+                            local info="${info_lines[$i]:-}"
+                            if [[ -n "$art" && -n "$info" ]]; then
+                                printf '%s\033[%dG%s\n' "$art" "$info_col" "$info"
+                            elif [[ -n "$art" ]]; then
+                                printf '%s\n' "$art"
+                            elif [[ -n "$info" ]]; then
+                                printf '\033[%dG%s\n' "$info_col" "$info"
+                            else
+                                echo
+                            fi
+                        done
+                        # Print URL
+                        [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+
+                        # Move cursor back to top for next frame
+                        printf '\033[%dA' "$((display_lines + total_below))"
+                    done
+                done
+
+                printf '\033[?25h'
+                stty "$TT_SAVED" 2>/dev/null || true
+
+                # Final static frame side-by-side
+                for ((i=0; i<display_lines; i++)); do
+                    local art="${frame_art[$i]:-}"
+                    local info="${info_lines[$i]:-}"
+                    if [[ -n "$art" && -n "$info" ]]; then
+                        printf '%s\033[%dG%s\n' "$art" "$info_col" "$info"
+                    elif [[ -n "$art" ]]; then
+                        printf '%s\n' "$art"
+                    elif [[ -n "$info" ]]; then
+                        printf '\033[%dG%s\n' "$info_col" "$info"
+                    else
+                        echo
+                    fi
+                done
+                [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+                # Cursor is at bottom of output -- prompt appears correctly
+            else
+                # Can't animate -- show static side-by-side
+                local info_count=$(( ${#info_pairs[@]} / 2 ))
+                mapfile -t art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
+                if [[ ${#art_lines[@]} -gt 0 ]]; then
+                    print_side_by_side art_lines info_pairs
+                    [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+                else
+                    echo ""
+                    print_info_fallback info_pairs
+                fi
+            fi
+            rm -rf "$frame_dir" 2>/dev/null || true
         else
-            echo "  Waifu image unavailable (install chafa, img2txt, or jp2a)" >&2
-            echo ""
-            print_info_fallback info_pairs
+            # Static image: normal side-by-side ASCII art display
+            local info_count=$(( ${#info_pairs[@]} / 2 ))
+            mapfile -t art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
+
+            if [[ ${#art_lines[@]} -gt 0 ]]; then
+                print_side_by_side art_lines info_pairs
+                [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+            else
+                echo "  Waifu image unavailable (install chafa, img2txt, or jp2a)" >&2
+                echo ""
+                print_info_fallback info_pairs
+            fi
         fi
 
         rm -f "$tmpfile"

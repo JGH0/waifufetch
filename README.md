@@ -107,6 +107,8 @@ waifufetch icat suggestive neko  # icat display with suggestive rating
 waifufetch --setDefaultSFW borderline  # include up to borderline
 waifufetch --setDefaultDisplayer chafa  # use chafa by default
 ```
+<img width="887" height="428" alt="image" src="https://github.com/user-attachments/assets/f07a4e5d-f312-43e7-a048-501ec5ac18b3" />
+
 
 ### Companion: `waifu`
 

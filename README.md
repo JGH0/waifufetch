@@ -29,7 +29,24 @@ yay -S waifufetch
 paru -S waifufetch
 ```
 
-### Manual
+
+### Manual Install
+
+#### 1. Clone repository
+
+```bash
+git clone https://github.com/JGH0/waifufetch.git
+cd waifufetch
+```
+
+#### 3. Install dependencies
+
+```bash
+# use your prefered package manager
+sudo pacman -S curl jq chafa
+```
+
+#### 4. Install commands
 
 ```bash
 sudo install -m755 waifufetch /usr/local/bin/waifufetch

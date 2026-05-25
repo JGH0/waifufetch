@@ -19,6 +19,15 @@ Auto-detected in order of preference:
 - **img2txt** (from caca-utils) — colored ASCII art
 - **jp2a** — black & white ASCII art
 
+### GIF Animation Support
+
+- **chafa** (recommended) — full animated GIF support in-terminal
+- **kitty icat** — animated GIF support via icat
+- **img2txt** / **jp2a** — GIFs are displayed as static frames (no animation)
+
+When using `-i <file>` with an animated GIF, chafa or icat will show the full
+animation. jp2a and img2txt only show a single frame (a warning is printed).
+
 ## Installation
 
 ### Arch Linux (AUR)
@@ -56,6 +65,7 @@ Display system info with a random waifu decoration.
 
   waifufetch --setDefaultSFW <r>       - set default SFW rating
   waifufetch --setDefaultDisplayer <d> - set default image displayer
+  waifufetch -i <file>               - display a local image/GIF file with system info
   waifufetch --noLink                  - suppress image URL output
   waifufetch --debug                   - show detailed debug info
   waifufetch --help                    - show this help
@@ -81,6 +91,7 @@ waifufetch chafa        # use chafa as displayer
 waifufetch icat suggestive neko  # icat display with suggestive rating
 waifufetch --setDefaultSFW borderline  # include up to borderline
 waifufetch --setDefaultDisplayer chafa  # use chafa by default
+waifufetch -i ~/Pictures/waifu.gif  # display a local file with system info
 ```
 
 ### Companion: `waifu`
@@ -102,6 +113,7 @@ Usage: waifu [displayer] [category|rating] [tag] [--debug]
   waifu icat                 - force kitty icat display
   waifu chafa suggestive     - force chafa with rating
 
+  waifu -i <file>                 - display a local image/GIF file
   waifu --setDefaultSFW <r>       - set default SFW rating
   waifu --setDefaultDisplayer <d> - set default image displayer
   waifu --debug                   - show detailed debug info

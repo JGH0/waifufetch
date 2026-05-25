@@ -52,6 +52,7 @@ Display system info with a random waifu decoration.
                                             Valid: icat, chafa, img2txt,
                                             jp2a
 
+  waifufetch -i <file>                    - display a local image/GIF file with system info
   waifufetch --noLink                     - suppress image URL output
   waifufetch --debug                      - show detailed debug info
   waifufetch nsfw --help                  - show NSFW-specific help
@@ -109,20 +110,28 @@ if [[ -f "$WAIFU_DISPLAYER_FILE" ]]; then
 fi
 
 # ============================================================
-# Parse --debug, --version, and --noLink from anywhere (must be first)
+# Parse flags from anywhere (must be first)
 # ============================================================
 DEBUG=0
 NO_LINK=0
-FILTERED_ARGS=()
-for arg in "$@"; do
-    case "$arg" in
-        --debug)   DEBUG=1 ;;
-        --noLink)  NO_LINK=1 ;;
+IMAGE_INPUT_FILE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --debug)   DEBUG=1; shift ;;
+        --noLink)  NO_LINK=1; shift ;;
         -v|--version)
             echo "waifufetch v$VERSION"
             exit 0
             ;;
-        *)         FILTERED_ARGS+=("$arg") ;;
+        -i)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: -i requires a file path argument" >&2
+                exit 1
+            fi
+            IMAGE_INPUT_FILE="$2"
+            shift 2
+            ;;
+        *)         FILTERED_ARGS+=("$1"); shift ;;
     esac
 done
 set -- "${FILTERED_ARGS[@]}"
@@ -156,6 +165,7 @@ Usage: waifufetch [displayer] [category|rating] [tag] [--noLink] [--debug]
                                           Valid: icat, chafa, img2txt,
                                           jp2a
 
+  waifufetch -i <file>              - display a local image/GIF file with system info
   waifufetch --noLink                 - suppress image URL output
   waifufetch --debug                  - show detailed debug info
 
@@ -726,11 +736,22 @@ fetch_waifu() {
 # ============================================================
 main() {
     local tmpfile
-    tmpfile="$(mktemp /tmp/waifufetch-XXXXXX 2>/dev/null)"
     local image_url=""
 
-    # Fetch image
-    image_url="$(fetch_waifu "$API_RATING" "$CATEGORY" "$tmpfile")" || true
+    if [[ -n "$IMAGE_INPUT_FILE" ]]; then
+        # Local file mode (-i <path>)
+        if [[ ! -f "$IMAGE_INPUT_FILE" ]]; then
+            echo "Error: File not found: $IMAGE_INPUT_FILE" >&2
+            exit 1
+        fi
+        tmpfile="$(mktemp /tmp/waifu-local-XXXXXX 2>/dev/null)" && cp "$IMAGE_INPUT_FILE" "$tmpfile"
+        image_url="file://$IMAGE_INPUT_FILE"
+    else
+        tmpfile="$(mktemp /tmp/waifufetch-XXXXXX 2>/dev/null)"
+
+        # Fetch image
+        image_url="$(fetch_waifu "$API_RATING" "$CATEGORY" "$tmpfile")" || true
+    fi
 
     if [[ -z "$image_url" ]]; then
         # Check if the category is known
@@ -807,9 +828,24 @@ main() {
             DISPLAYER=""
         fi
 
-        # ---- GIF: animate first, then system info below ----
-        # ---- Otherwise: static side-by-side ----
-        if is_gif_file "$tmpfile"; then
+        # Warn about GIF with static-only displayers
+        if is_gif_file "$tmpfile" 2>/dev/null; then
+            if [[ "$DISPLAYER" == "jp2a" || "$DISPLAYER" == "img2txt" ]]; then
+                echo "Warning: '$DISPLAYER' does not support GIF animation. Showing static frame only." >&2
+                # Extract first frame as PNG for displayer compatibility
+                local static_file
+                static_file="$(mktemp /tmp/waifu-static-XXXXXX.png 2>/dev/null)"
+                if command -v convert &>/dev/null; then
+                    convert "$tmpfile[0]" "$static_file" 2>/dev/null && tmpfile="$static_file"
+                elif command -v ffmpeg &>/dev/null; then
+                    ffmpeg -y -i "$tmpfile" -vframes 1 "$static_file" 2>/dev/null && tmpfile="$static_file"
+                fi
+            fi
+        fi
+
+        # ---- GIF animation (skipped when static displayer chosen) ----
+        if is_gif_file "$tmpfile" \
+            && [[ "$DISPLAYER" != "jp2a" && "$DISPLAYER" != "img2txt" ]]; then
             local frame_dir
             frame_dir="$(mktemp -d /tmp/waifu-frames-XXXXXX 2>/dev/null)"
             local frames_extracted=0

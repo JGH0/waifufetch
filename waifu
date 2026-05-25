@@ -55,20 +55,28 @@ if [[ -f "$WAIFU_DISPLAYER_FILE" ]]; then
 fi
 
 # ============================================================
-# Parse --debug, --version, and --noLink from anywhere
+# Parse flags from anywhere
 # ============================================================
 DEBUG=0
 NO_LINK=0
-FILTERED_ARGS=()
-for arg in "$@"; do
-    case "$arg" in
-        --debug)   DEBUG=1 ;;
-        --noLink)  NO_LINK=1 ;;
+IMAGE_INPUT_FILE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --debug)   DEBUG=1; shift ;;
+        --noLink)  NO_LINK=1; shift ;;
         -v|--version)
             echo "waifu v$VERSION"
             exit 0
             ;;
-        *)         FILTERED_ARGS+=("$arg") ;;
+        -i)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: -i requires a file path argument" >&2
+                exit 1
+            fi
+            IMAGE_INPUT_FILE="$2"
+            shift 2
+            ;;
+        *)         FILTERED_ARGS+=("$1"); shift ;;
     esac
 done
 set -- "${FILTERED_ARGS[@]}"
@@ -107,6 +115,8 @@ Usage: waifu [displayer] [category|rating] [tag] [--noLink] [--debug]
   waifu --setDefaultDisplayer <d>    - set default image displayer
                                        Valid: icat, chafa, img2txt, jp2a
 
+  waifu -i <file>                    - display a local image/GIF file
+  waifu -v, --version                - show version and exit
   waifu --noLink                     - suppress image URL output
   waifu --debug                      - show detailed debug info
 
@@ -164,6 +174,7 @@ Usage: waifu [displayer] [category|rating] [tag] [--debug]
   waifu --setDefaultDisplayer <d>    - set default image displayer
                                        Valid: icat, chafa, img2txt, jp2a
 
+  waifu -i <file>                    - display a local image/GIF file
   waifu --debug                      - show detailed debug info
   waifu -v, --version                - show version and exit
   waifu nsfw --help                  - show NSFW-specific help
@@ -356,6 +367,19 @@ if [[ $DEBUG -eq 1 ]]; then
 fi
 
 # ============================================================
+# Handle -i (local file) mode
+# ============================================================
+if [[ -n "$IMAGE_INPUT_FILE" ]]; then
+    if [[ ! -f "$IMAGE_INPUT_FILE" ]]; then
+        echo "Error: File not found: $IMAGE_INPUT_FILE" >&2
+        exit 1
+    fi
+    IMAGE_FILE="$(mktemp /tmp/waifu-local-XXXXXX 2>/dev/null)" && cp "$IMAGE_INPUT_FILE" "$IMAGE_FILE"
+    IMAGE_URL="file://$IMAGE_INPUT_FILE"
+    FROM_CACHE=0
+fi
+
+# ============================================================
 # Cache setup
 # ============================================================
 CAN_CACHE=0
@@ -367,32 +391,37 @@ CACHE_KEY="${MODE}|${IS_DIRECT_RATING}|${RATING_LEVEL}|${CATEGORY}"
 
 CM="$CACHE_DIR/meta.txt"
 CF="$CACHE_DIR/img"
-IMAGE_URL=""
-IMAGE_FILE=""
-FROM_CACHE=0
+if [[ -z "$IMAGE_INPUT_FILE" ]]; then
+    IMAGE_URL=""
+    IMAGE_FILE=""
+    FROM_CACHE=0
+fi
+
+# ----- Skip fetch/cache entirely when local file (-i) is used -----
+if [[ -z "$IMAGE_INPUT_FILE" ]]; then
 
 # Check cache
-if [[ $CAN_CACHE -eq 1 && -f "$CM" && -f "$CF" ]]; then
-    read -r CK < "$CM" || true
-    CU="$(tail -1 "$CM" 2>/dev/null || true)"
-    if [[ "$CK" == "$CACHE_KEY" && -n "$CU" ]]; then
-        IMAGE_URL="$CU"
-        IMAGE_FILE="$CF"
-        FROM_CACHE=1
-        [[ $DEBUG -eq 1 ]] && echo "[debug] cache HIT: $CACHE_KEY" >&2
+    if [[ $CAN_CACHE -eq 1 && -f "$CM" && -f "$CF" ]]; then
+        read -r CK < "$CM" || true
+        CU="$(tail -1 "$CM" 2>/dev/null || true)"
+        if [[ "$CK" == "$CACHE_KEY" && -n "$CU" ]]; then
+            IMAGE_URL="$CU"
+            IMAGE_FILE="$CF"
+            FROM_CACHE=1
+            [[ $DEBUG -eq 1 ]] && echo "[debug] cache HIT: $CACHE_KEY" >&2
+        else
+            rm -f "$CM" "$CF"
+            [[ $DEBUG -eq 1 ]] && echo "[debug] cache MISS: wanted '$CACHE_KEY', had '$CK'" >&2
+        fi
     else
-        rm -f "$CM" "$CF"
-        [[ $DEBUG -eq 1 ]] && echo "[debug] cache MISS: wanted '$CACHE_KEY', had '$CK'" >&2
+        [[ $DEBUG -eq 1 ]] && echo "[debug] cache MISS: no cache files" >&2
     fi
-else
-    [[ $DEBUG -eq 1 ]] && echo "[debug] cache MISS: no cache files" >&2
-fi
 
 # ============================================================
 # Fetch if miss
 # ============================================================
-fetch_start=0
-if [[ -z "$IMAGE_URL" ]]; then
+    fetch_start=0
+    if [[ -z "$IMAGE_URL" ]]; then
     fetch_start="$(date +%s%3N 2>/dev/null || echo 0)"
     SOURCE_USED="none"
     SOURCE_FAILED=""
@@ -522,6 +551,7 @@ if [[ -z "$IMAGE_URL" ]]; then
         mv "$IMAGE_FILE" "$CF" 2>/dev/null && IMAGE_FILE="$CF"
     fi
 fi
+fi
 
 # ============================================================
 # Check displayer availability
@@ -559,6 +589,35 @@ if [[ -n "$DISPLAYER" ]]; then
     esac
     if [[ $DISP_AVAILABLE -eq 0 ]]; then
         exit 1
+    fi
+fi
+
+# ============================================================
+# Check if a file is an animated GIF
+# ============================================================
+is_gif_file() {
+    local f="$1"
+    [[ -f "$f" ]] || return 1
+    [[ "${f,,}" == *.gif ]] && return 0
+    local magic
+    magic=$(dd if="$f" bs=1 count=3 2>/dev/null)
+    [[ "$magic" == "GIF" ]] && return 0
+    return 1
+}
+
+# ============================================================
+# Warn about GIF with static-only displayers
+# ============================================================
+if is_gif_file "$IMAGE_FILE" 2>/dev/null; then
+    if [[ "$DISPLAYER" == "jp2a" || "$DISPLAYER" == "img2txt" ]]; then
+        echo "Warning: '$DISPLAYER' does not support GIF animation. Showing static frame only." >&2
+        # Extract first frame as PNG for displayer compatibility
+        static_file="$(mktemp /tmp/waifu-static-XXXXXX.png 2>/dev/null)"
+        if command -v convert &>/dev/null; then
+            convert "$IMAGE_FILE[0]" "$static_file" 2>/dev/null && IMAGE_FILE="$static_file"
+        elif command -v ffmpeg &>/dev/null; then
+            ffmpeg -y -i "$IMAGE_FILE" -vframes 1 "$static_file" 2>/dev/null && IMAGE_FILE="$static_file"
+        fi
     fi
 fi
 
@@ -661,7 +720,7 @@ display_image() {
     return 1
 }
 
-display_image "$IMAGE_FILE" "$IMAGE_URL" "$DISPLAYER"
+display_image "$IMAGE_FILE" "$IMAGE_URL" "$DISPLAYER" || echo "Image display failed (try a different displayer)." >&2
 if [[ $DEBUG -eq 1 ]]; then
     echo "[debug] url:   $IMAGE_URL" >&2
     echo "[debug] cache: $FROM_CACHE" >&2

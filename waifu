@@ -16,12 +16,18 @@ main() {
     # ============================================================
     DEBUG=0
     NO_LINK=0
+    RESET_SETTINGS=0
     IMAGE_INPUT_FILE=""
     local FILTERED_ARGS=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --debug)   DEBUG=1; shift ;;
-            --noLink)  NO_LINK=1; shift ;;
+            --debug)        DEBUG=1; shift ;;
+            --noLink)       NO_LINK=1; shift ;;
+            --resetSettings)
+                rm -rf "$WAIFU_CONFIG_DIR"
+                echo "Settings reset. Config directory removed: $WAIFU_CONFIG_DIR"
+                exit 0
+                ;;
             -v|--version)
                 echo "waifu v$VERSION"
                 exit 0
@@ -68,6 +74,7 @@ main() {
         if [[ $# -lt 2 ]]; then
             echo "Usage: waifu --setDefaultDisplayer <displayer>"
             echo "Valid: icat, chafa, img2txt, jp2a"
+            echo "Run with empty value to clear: --setDefaultDisplayer \"\""
             exit 1
         fi
         local NEW_DISP="$2"
@@ -76,6 +83,10 @@ main() {
                 mkdir -p "$WAIFU_CONFIG_DIR"
                 echo "$NEW_DISP" > "$WAIFU_DISPLAYER_FILE"
                 echo "Default displayer set to: $NEW_DISP"
+                ;;
+            "")
+                rm -f "$WAIFU_DISPLAYER_FILE"
+                echo "Default displayer cleared (will auto-detect)"
                 ;;
             *)
                 echo "Error: Invalid displayer '$NEW_DISP'. Valid: icat, chafa, img2txt, jp2a" >&2
@@ -92,6 +103,7 @@ main() {
         if [[ $# -lt 2 ]]; then
             echo "Usage: waifu --setDefaultSFW <rating>"
             echo "Valid: safe, suggestive, borderline"
+            echo "Run with empty value to reset to default: --setDefaultSFW \"\""
             exit 1
         fi
         local NEW_VAL="$2"
@@ -114,6 +126,10 @@ main() {
             explicit)
                 echo "Error: Cannot set default SFW to 'explicit'. Use 'waifu explicit' for one-off requests." >&2
                 exit 1
+                ;;
+            "")
+                rm -f "$CONFIG_FILE"
+                echo "Default SFW rating reset to: safe (default)"
                 ;;
             *)
                 echo "Error: Invalid rating '$NEW_VAL'. Valid: safe, suggestive, borderline" >&2
@@ -223,7 +239,7 @@ main() {
             echo "Error: File not found: $IMAGE_INPUT_FILE" >&2
             exit 1
         fi
-        IMAGE_FILE="$(mktemp /tmp/waifu-local-XXXXXX 2>/dev/null)" && cp "$IMAGE_INPUT_FILE" "$IMAGE_FILE"
+        IMAGE_FILE="$(_mktemp)" && cp "$IMAGE_INPUT_FILE" "$IMAGE_FILE"
         IMAGE_URL="file://$IMAGE_INPUT_FILE"
         FROM_CACHE=0
     fi
@@ -262,7 +278,7 @@ main() {
             echo "Warning: '$DISPLAYER' does not support GIF animation. Showing static frame only." >&2
             # Extract first frame as PNG for displayer compatibility
             local static_file
-            static_file="$(mktemp /tmp/waifu-static-XXXXXX.png 2>/dev/null)"
+            static_file="$(_mktemp).png"
             if command -v convert &>/dev/null; then
                 convert "$IMAGE_FILE[0]" "$static_file" 2>/dev/null && IMAGE_FILE="$static_file"
             elif command -v ffmpeg &>/dev/null; then

@@ -5,6 +5,8 @@ with a waifu image as the ASCII art logo instead of a distro logo.
 
 Uses **nekosapi.com v4**, **waifu.im**, and **nekos.best** APIs.
 
+Something not working? [Open an issue](https://github.com/JGH0/waifufetch/issues).
+
 ## Requirements
 
 - **curl** — API requests
@@ -93,7 +95,10 @@ Display system info with a random waifu decoration.
   waifufetch chafa suggestive     - force chafa with suggestive rating
 
   waifufetch --setDefaultSFW <r>          - set default SFW rating
+                                       ("" to reset to safe)
   waifufetch --setDefaultDisplayer <d>    - set default image displayer
+                                       ("" to clear, auto-detect)
+  waifufetch --resetSettings              - remove all saved config files
   waifufetch -i <file>                    - display a local image/GIF file with system info
   waifufetch --noLink                     - suppress image URL output
   waifufetch --debug                      - show detailed debug info
@@ -110,6 +115,9 @@ APIs: nekosapi.com v4, waifu.im, nekos.best
 Note: Tags and ratings depend on API metadata and are not 100% precise.
       Returned images are verified to match the requested category tag.
       Install chafa for GIF animation support.
+
+Something not working? Report it at:
+<https://github.com/JGH0/waifufetch/issues>
 ```
 
 ### Examples
@@ -121,6 +129,8 @@ waifufetch chafa        # use chafa as displayer
 waifufetch icat suggestive neko  # icat display with suggestive rating
 waifufetch --setDefaultSFW borderline  # include up to borderline
 waifufetch --setDefaultDisplayer chafa  # use chafa by default
+waifufetch --setDefaultDisplayer ""   # back to auto-detect
+waifufetch --resetSettings             # remove all config files
 waifufetch -i ~/Pictures/waifu.gif  # display a local file with system info
 ```
 <img width="887" height="428" alt="image" src="https://github.com/user-attachments/assets/f07a4e5d-f312-43e7-a048-501ec5ac18b3" />
@@ -155,8 +165,9 @@ Usage: waifu [displayer] [category|rating] [tag] [--debug]
   waifu chafa suggestive     - force chafa with rating
 
   waifu -i <file>                    - display a local image/GIF file
-  waifu --setDefaultSFW <r>          - set default SFW rating
-  waifu --setDefaultDisplayer <d>    - set default image displayer
+  waifu --setDefaultSFW <r>          - set default SFW rating ("" to reset)
+  waifu --setDefaultDisplayer <d>    - set default image displayer ("" to clear)
+  waifu --resetSettings              - remove all saved config files
   waifu --noLink                     - suppress image URL output
   waifu --debug                      - show detailed debug info
   waifu -v, --version                - show version and exit
@@ -172,6 +183,8 @@ Config files are stored in `~/.config/waifu/`:
 
 Set with `waifufetch --setDefaultSFW <rating>` or
 `waifufetch --setDefaultDisplayer <displayer>`.
+
+Reset all settings: `waifufetch --resetSettings`.
 
 ## License
 

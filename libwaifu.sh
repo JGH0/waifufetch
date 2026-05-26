@@ -55,6 +55,45 @@ if [[ -f "$WAIFU_DISPLAYER_FILE" ]]; then
 fi
 
 # ============================================================
+# Cross-platform helpers
+# ============================================================
+
+# _mktemp - temporary file (works on Linux, macOS, BSD)
+_mktemp() {
+    mktemp -t waifu-tmp 2>/dev/null || mktemp 2>/dev/null
+}
+
+# _mktemp_dir - temporary directory (works on Linux, macOS, BSD)
+_mktemp_dir() {
+    mktemp -d -t waifu-dir 2>/dev/null || mktemp -d 2>/dev/null
+}
+
+# _human_size - convert bytes to human-readable (e.g., 1073741824 -> 1G)
+_human_size() {
+    local bytes=$1 irate
+    irate=$(awk -v b="$bytes" 'BEGIN {
+        if (b >= 1073741824)  printf "%.1fG\n", b/1073741824;
+        else if (b >= 1048576) printf "%.1fM\n", b/1048576;
+        else if (b >= 1024)    printf "%.1fK\n", b/1024;
+        else                   printf "%dB\n", b;
+    }' 2>/dev/null)
+    echo "${irate}"
+}
+
+# _uptime_secs - get seconds since boot (cross-platform)
+_uptime_secs() {
+    if [[ -f /proc/uptime ]]; then
+        awk '{print int($1)}' /proc/uptime 2>/dev/null
+    elif command -v sysctl &>/dev/null; then
+        local boottime
+        boottime="$(sysctl -n kern.boottime 2>/dev/null | sed 's/[^0-9 ]//g' | awk '{print $1}' 2>/dev/null || true)"
+        if [[ -n "$boottime" && "$boottime" -gt 0 ]]; then
+            echo $(( $(date +%s) - boottime ))
+        fi
+    fi
+}
+
+# ============================================================
 # is_gif_file - check if a file is an animated GIF
 # ============================================================
 is_gif_file() {
@@ -158,7 +197,7 @@ fetch_and_cache() {
     fi
     # Cache miss -- fetch from API
     local tmpfile url
-    tmpfile="$(mktemp /tmp/waifu-fetch-XXXXXX 2>/dev/null)"
+    tmpfile="$(_mktemp)"
     url="$(fetch_waifu "$API_RATING" "$CATEGORY" "$tmpfile")" || true
     if [[ -n "$url" && -s "$tmpfile" ]]; then
         IMAGE_URL="$url"
@@ -179,7 +218,7 @@ prefetch_cache() {
     if [[ ${CAN_CACHE:-0} -eq 1 ]]; then
         (
             local tmpfile url
-            tmpfile="$(mktemp /tmp/waifu-prefetch-XXXXXX 2>/dev/null)"
+            tmpfile="$(_mktemp)"
             url="$(fetch_waifu "$API_RATING" "$CATEGORY" "$tmpfile")" || true
             if [[ -n "$url" && -s "$tmpfile" ]]; then
                 setup_cache
@@ -531,31 +570,46 @@ print_info_fallback() {
 }
 
 # ============================================================
-# collect_info - collect system information into an associative array
+# collect_info - collect system information (Linux, macOS, BSD)
 # ============================================================
 collect_info() {
     local -n _ci="$1"
     local os user host uptime_str uptime_secs days hours mins \
-          shell term de cpu gpu mem pkgs res swap disk
+          shell term de cpu gpu mem swap disk pkgs res
 
+    local uname_s="$(uname -s 2>/dev/null || echo 'unknown')"
+    local uname_r="$(uname -r 2>/dev/null || echo 'unknown')"
+
+    # ---- OS ----
     os=""
     if [[ -f /etc/os-release ]]; then
-        os="$(grep -oP '(?<=^PRETTY_NAME=").*(?=")' /etc/os-release 2>/dev/null || \
-              grep -oP '(?<=^NAME=").*(?=")' /etc/os-release 2>/dev/null || \
-              grep -oP '(?<=^NAME=)[^"\n]+' /etc/os-release 2>/dev/null)"
+        os="$(sed -n 's/^PRETTY_NAME="\(.*\)"/\1/p' /etc/os-release 2>/dev/null || \
+              sed -n 's/^NAME="\(.*\)"/\1/p' /etc/os-release 2>/dev/null || \
+              sed -n 's/^NAME=\([^"]*\)/\1/p' /etc/os-release 2>/dev/null)"
     fi
-    [[ -z "$os" ]] && os="$(uname -s)"
+    if [[ -z "$os" ]]; then
+        case "$uname_s" in
+            Darwin)  os="macOS $(sw_vers -productVersion 2>/dev/null || true)" ;;
+            FreeBSD) os="FreeBSD $uname_r" ;;
+            OpenBSD) os="OpenBSD $uname_r" ;;
+            NetBSD)  os="NetBSD $uname_r" ;;
+            *)       os="$uname_s" ;;
+        esac
+    fi
     _ci+=("OS" "$os")
 
+    # ---- Host ----
     user="$(whoami 2>/dev/null || echo "${USER:-unknown}")"
     host="$(hostname 2>/dev/null || echo "unknown")"
     _ci+=("Host" "${user}@${host}")
 
-    _ci+=("Kernel" "$(uname -r 2>/dev/null || echo 'unknown')")
+    # ---- Kernel ----
+    _ci+=("Kernel" "$uname_r")
 
+    # ---- Uptime ----
     uptime_str=""
-    if [[ -f /proc/uptime ]]; then
-        uptime_secs="$(awk '{print int($1)}' /proc/uptime 2>/dev/null)"
+    uptime_secs="$(_uptime_secs)"
+    if [[ -n "$uptime_secs" && "$uptime_secs" -gt 0 ]]; then
         days=$((uptime_secs / 86400))
         hours=$(( (uptime_secs % 86400) / 3600 ))
         mins=$(( (uptime_secs % 3600) / 60 ))
@@ -566,70 +620,122 @@ collect_info() {
         else
             uptime_str="${mins}m"
         fi
-    else
-        uptime_str="$(uptime -p 2>/dev/null | sed 's/^up //' || echo 'unknown')"
+    fi
+    if [[ -z "$uptime_str" ]]; then
+        # fallback: parse uptime output (varies by OS)
+        local raw_uptime
+        raw_uptime="$(uptime 2>/dev/null | sed 's/.* up *//; s/,.*//; s/\s\+/ /g' | xargs || true)"
+        if echo "$raw_uptime" | grep -qE '^[0-9]+:[0-9]+'; then
+            local uh um
+            uh="${raw_uptime%%:*}"
+            um="${raw_uptime#*:}"
+            um="${um%% *}"
+            if [[ "$uh" -gt 24 ]]; then
+                uptime_str="${uh}m"
+            else
+                uptime_str="${uh}h ${um}m"
+            fi
+        elif [[ -n "$raw_uptime" ]]; then
+            uptime_str="$raw_uptime"
+        else
+            uptime_str="unknown"
+        fi
     fi
     _ci+=("Uptime" "$uptime_str")
 
+    # ---- Shell ----
     shell="${SHELL:-unknown}"
     shell="$(basename "$shell")"
     _ci+=("Shell" "$shell")
 
+    # ---- Terminal ----
     term="${TERM:-unknown}"
     _ci+=("Terminal" "$term")
 
+    # ---- WM/DE ----
     de="${XDG_CURRENT_DESKTOP:-${XDG_SESSION_DESKTOP:-${DESKTOP_SESSION:-}}}"
     if [[ -z "$de" ]]; then
         if command -v wmctrl &>/dev/null; then
-            de="$(wmctrl -m 2>/dev/null | grep -oP '(?<=Name: ).*' || true)"
+            de="$(wmctrl -m 2>/dev/null | sed -n 's/.*Name: //p' || true)"
         fi
-        [[ -z "$de" ]] && de="$(pgrep -l -x gnome-shell | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x kwin_x11 | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x kwin_wayland | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x sway | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x hyprland | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x i3 | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x bspwm | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x dwm | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x openbox | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x awesome | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x herbstluftwm | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x qtile | grep -oP '^\d+ \K.*' || \
-                                 pgrep -l -x xfce4-panel | grep -oP '^\d+ \K.*' || true)"
-        [[ -z "$de" ]] && de="Not detected"
+        [[ -z "$de" ]] && de="$(pgrep -l -x gnome-shell | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x kwin_x11 | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x kwin_wayland | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x sway | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x hyprland | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x i3 | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x bspwm | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x dwm | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x openbox | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x awesome | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x herbstluftwm | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x qtile | sed -n 's/^[0-9]* //p' || \
+                                 pgrep -l -x xfce4-panel | sed -n 's/^[0-9]* //p' || true)"
     fi
+    if [[ -z "$de" && "$uname_s" == "Darwin" ]]; then
+        de="Aqua"
+    fi
+    [[ -z "$de" ]] && de="Not detected"
     _ci+=("WM/DE" "$de")
 
+    # ---- CPU ----
     cpu=""
     if [[ -f /proc/cpuinfo ]]; then
         cpu="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | sed 's/.*: //' || true)"
     fi
-    [[ -z "$cpu" ]] && cpu="$(lscpu 2>/dev/null | grep 'Model name' | sed 's/.*:\s*//' || echo 'unknown')"
+    if [[ -z "$cpu" ]] && command -v sysctl &>/dev/null; then
+        cpu="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || \
+               sysctl -n hw.model 2>/dev/null || true)"
+    fi
+    [[ -z "$cpu" ]] && cpu="$uname_s $uname_r"
     cpu="$(printf '%s' "$cpu" | sed 's/(R)//g; s/(TM)//g; s/ CPU @ [0-9.]*GHz//g; s/  */ /g' | xargs)"
     _ci+=("CPU" "$cpu")
 
+    # ---- GPU ----
     gpu=""
     if command -v lspci &>/dev/null; then
         gpu="$(lspci 2>/dev/null | grep -i 'vga\|3d\|display' | head -1 | sed 's/.*: //; s/ (rev.*)//; s/ \[.*\]//g' || true)"
+    fi
+    if [[ -z "$gpu" && "$uname_s" == "Darwin" ]] && command -v system_profiler &>/dev/null; then
+        gpu="$(system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/ {print $2; exit}' || true)"
     fi
     [[ -z "$gpu" ]] && gpu="unknown"
     gpu="$(printf '%s' "$gpu" | sed 's/ \(Corporation\|Technology\|Inc\)//g' | xargs)"
     _ci+=("GPU" "$gpu")
 
+    # ---- Memory ----
     mem=""
     if command -v free &>/dev/null; then
         mem="$(free -h 2>/dev/null | awk '/^Mem:/ {print $3 "/" $2}')"
+    elif [[ "$uname_s" == "Darwin" ]] && command -v vm_stat &>/dev/null; then
+        local mem_total mem_used page_size active_pages wire_pages
+        mem_total="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+        page_size="$(sysctl -n hw.pagesize 2>/dev/null)"
+        [[ -z "$page_size" || "$page_size" -eq 0 ]] && page_size=16384
+        active_pages="$(vm_stat 2>/dev/null | awk '/Pages active/  {gsub(/[^0-9]/,"",$NF); print $NF; exit}')"
+        wire_pages="$(vm_stat 2>/dev/null | awk '/Pages wired/   {gsub(/[^0-9]/,"",$NF); print $NF; exit}')"
+        [[ -z "$active_pages" ]] && active_pages=0
+        [[ -z "$wire_pages" ]] && wire_pages=0
+        mem_used="$(( (active_pages + wire_pages) * page_size ))"
+        mem="$(_human_size "$mem_used")/$(_human_size "$mem_total")"
+    elif command -v sysctl &>/dev/null; then
+        mem_total="$(sysctl -n hw.physmem 2>/dev/null)"
+        [[ -n "$mem_total" ]] && mem="$(_human_size "$mem_total")"
     fi
     [[ -z "$mem" ]] && mem="unknown"
     _ci+=("Memory" "$mem")
 
+    # ---- Swap ----
     swap=""
     if command -v free &>/dev/null; then
         swap="$(free -h 2>/dev/null | awk '/^Swap:/ {print $3 "/" $2}')"
+    elif [[ "$uname_s" == "Darwin" ]]; then
+        swap="$(sysctl -n vm.swapusage 2>/dev/null | awk '{gsub(/[=,]/," "); print $4 "/" $2}' || true)"
     fi
     [[ -z "$swap" || "$swap" == "/" ]] && swap="none"
     _ci+=("Swap" "$swap")
 
+    # ---- Disk ----
     disk=""
     if command -v df &>/dev/null; then
         disk="$(df -h / 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
@@ -637,6 +743,7 @@ collect_info() {
     [[ -z "$disk" ]] && disk="unknown"
     _ci+=("Disk" "$disk")
 
+    # ---- Packages ----
     pkgs=0
     if command -v pacman &>/dev/null; then
         pkgs=$((pkgs + $(pacman -Q 2>/dev/null | wc -l)))
@@ -650,19 +757,60 @@ collect_info() {
     if command -v flatpak &>/dev/null; then
         pkgs=$((pkgs + $(flatpak list 2>/dev/null | wc -l)))
     fi
+    if command -v snap &>/dev/null; then
+        pkgs=$((pkgs + $(snap list 2>/dev/null | wc -l)))
+    fi
+    if [[ -d /var/db/pkg ]]; then
+        # Gentoo portage (count installed slots, works without extra tools)
+        pkgs=$((pkgs + $(ls -d /var/db/pkg/*/* 2>/dev/null | wc -l)))
+    fi
+    if command -v apk &>/dev/null; then
+        pkgs=$((pkgs + $(apk info 2>/dev/null | wc -l)))
+    fi
+    if command -v xbps-query &>/dev/null; then
+        pkgs=$((pkgs + $(xbps-query -l 2>/dev/null | wc -l)))
+    fi
+    if command -v eopkg &>/dev/null; then
+        pkgs=$((pkgs + $(eopkg list-installed 2>/dev/null | wc -l)))
+    fi
+    if command -v opkg &>/dev/null; then
+        pkgs=$((pkgs + $(opkg list-installed 2>/dev/null | wc -l)))
+    fi
+    if command -v nix-env &>/dev/null; then
+        pkgs=$((pkgs + $(nix-env -q 2>/dev/null | wc -l)))
+    fi
+    if command -v guix &>/dev/null; then
+        pkgs=$((pkgs + $(guix package --list-installed 2>/dev/null | wc -l)))
+    fi
+    if command -v brew &>/dev/null; then
+        pkgs=$((pkgs + $(brew list 2>/dev/null | wc -l)))
+    fi
+    if command -v port &>/dev/null; then
+        pkgs=$((pkgs + $(port installed 2>/dev/null | wc -l)))
+    fi
+    if command -v pkg &>/dev/null; then
+        pkgs=$((pkgs + $(pkg info 2>/dev/null | wc -l)))
+    fi
+    if command -v pkg_info &>/dev/null; then
+        pkgs=$((pkgs + $(pkg_info 2>/dev/null | wc -l)))
+    fi
     if [[ $pkgs -gt 0 ]]; then
         _ci+=("Packages" "$pkgs")
     fi
 
+    # ---- Resolution ----
     res=""
     if command -v xrandr &>/dev/null; then
-        res="$(xrandr 2>/dev/null | grep ' connected' | head -1 | grep -oP '\d+x\d+\s*\d+\.\d+\*?' | head -1 | awk '{print $1}' || true)"
+        res="$(xrandr 2>/dev/null | grep ' connected' | head -1 | grep -oE '[0-9]+x[0-9]+' | head -1 || true)"
     fi
     if [[ -z "$res" && -d /sys/class/drm ]]; then
         res="$(cat /sys/class/drm/*/modes 2>/dev/null | head -1 || true)"
     fi
     if command -v wlr-randr &>/dev/null; then
-        res="$(wlr-randr 2>/dev/null | grep -oP '\d+x\d+ px' | head -1 | sed 's/ px//' || true)"
+        res="$(wlr-randr 2>/dev/null | grep -oE '[0-9]+x[0-9]+' | head -1 || true)"
+    fi
+    if [[ -z "$res" && "$uname_s" == "Darwin" ]] && command -v system_profiler &>/dev/null; then
+        res="$(system_profiler SPDisplaysDataType 2>/dev/null | grep Resolution | head -1 | sed 's/.*: *//; s/ (.*//; s/ x /x/' || true)"
     fi
     [[ -n "$res" ]] && _ci+=("Resolution" "$res")
 }
@@ -686,6 +834,11 @@ Usage: $prog [displayer] [category|rating] [tag] [--noLink] [--debug]
 
   $prog --setDefaultDisplayer <d>    - set default image displayer
                                        Valid: icat, chafa, img2txt, jp2a
+                                       (empty value "" to clear / auto-detect)
+  $prog --setDefaultSFW <r>          - set default SFW rating
+                                       Valid: safe, suggestive, borderline
+                                       (empty value "" to reset to default)
+  $prog --resetSettings              - remove all saved settings and config files
 
   $prog -i <file>                    - display a local image/GIF file
   $prog --noLink                     - suppress image URL output
@@ -712,13 +865,17 @@ Ratings: safe, suggestive, borderline, explicit (cascading)
 
 Default SFW rating: $DEFAULT_SFW
   Set with: $prog --setDefaultSFW <safe|suggestive|borderline>
+  Reset with: $prog --setDefaultSFW ""
 
 Default displayer: ${DEFAULT_DISPLAYER:-auto}
   Set with: $prog --setDefaultDisplayer <icat|chafa|img2txt|jp2a>
+  Clear with: $prog --setDefaultDisplayer ""
 
 APIs: nekosapi.com v4, waifu.im, nekos.best
 Note: Tag/rating filtering depends on API metadata and is not 100%
       precise. You may occasionally see unexpected content.
+
+Report issues: <https://github.com/JGH0/waifufetch/issues>
 EOF
     exit 0
 }
@@ -747,9 +904,12 @@ Usage: $prog [displayer] [category|rating] [tag] [--debug]
                                        borderline (cascades:
                                        borderline includes all
                                        safe + suggestive + borderline)
+                                       (empty value "" to reset to default)
 
   $prog --setDefaultDisplayer <d>    - set default image displayer
                                        Valid: icat, chafa, img2txt, jp2a
+                                       (empty value "" to clear / auto-detect)
+  $prog --resetSettings              - remove all saved settings and config files
 
   $prog -i <file>                    - display a local image/GIF file
   $prog --noLink                     - suppress image URL output
@@ -774,6 +934,8 @@ GIFs:      lurk, shoot, sleep, clap, shrug, stare, wave, poke,
 APIs used: nekosapi.com v4, waifu.im, nekos.best
 Note: Tags and ratings depend on API metadata and are not 100% precise.
       You may occasionally see unexpected content.
+
+Report issues: <https://github.com/JGH0/waifufetch/issues>
 EOF
     exit 0
 }

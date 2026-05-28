@@ -99,7 +99,10 @@ _uptime_secs() {
 is_gif_file() {
     local f="$1"
     [[ -f "$f" ]] || return 1
-    [[ "${f,,}" == *.gif ]] && return 0
+    # Bash 3.2 compat: no ${f,,} available, use tr for lowercasing
+    if echo "${f##*.}" | grep -iq '^gif$'; then
+        return 0
+    fi
     local magic
     magic=$(dd if="$f" bs=1 count=3 2>/dev/null)
     [[ "$magic" == "GIF" ]] && return 0

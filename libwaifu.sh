@@ -420,6 +420,19 @@ display_image() {
 }
 
 # ============================================================
+# _readlines - read command output into array (bash 3.2 compat, no mapfile)
+# Usage: _readlines array_name < <(command)
+# ============================================================
+_readlines() {
+    local _r_name="$1"
+    local _r_line
+    eval "$_r_name=()"
+    while IFS= read -r _r_line; do
+        eval "$_r_name[\${#$_r_name[@]}]=\$_r_line"
+    done
+}
+
+# ============================================================
 # image_to_text - convert image to text lines (for side-by-side display)
 # ============================================================
 image_to_text() {
@@ -445,7 +458,7 @@ image_to_text() {
         case "$preferred" in
             chafa)
                 if command -v chafa &>/dev/null; then
-                    mapfile -t lines < <(chafa --format=symbols --symbols=block --relative=off --size="${img_width}x${img_height}" "$file" 2>/dev/null || true)
+                    _readlines lines < <(chafa --format=symbols --symbols=block --relative=off --size="${img_width}x${img_height}" "$file" 2>/dev/null || true)
                     if [[ ${#lines[@]} -gt 0 ]]; then
                         printf '%s\n' "${lines[@]}"
                         return 0
@@ -454,7 +467,7 @@ image_to_text() {
                 ;;
             img2txt)
                 if command -v img2txt &>/dev/null; then
-                    mapfile -t lines < <(img2txt -W "$img_width" "$file" 2>/dev/null | tr -d '\r' | sed $'s/\x1b\[[su]//g' || true)
+                    _readlines lines < <(img2txt -W "$img_width" "$file" 2>/dev/null | tr -d '\r' | sed $'s/\x1b\[[su]//g' || true)
                     if [[ ${#lines[@]} -gt 0 ]]; then
                         printf '%s\n' "${lines[@]}"
                         return 0
@@ -463,7 +476,7 @@ image_to_text() {
                 ;;
             jp2a)
                 if command -v jp2a &>/dev/null; then
-                    mapfile -t lines < <(jp2a --width="$img_width" "$file" 2>/dev/null || true)
+                    _readlines lines < <(jp2a --width="$img_width" "$file" 2>/dev/null || true)
                     if [[ ${#lines[@]} -gt 0 ]]; then
                         printf '%s\n' "${lines[@]}"
                         return 0
@@ -480,7 +493,7 @@ image_to_text() {
 
     # No preference: auto-detect
     if command -v chafa &>/dev/null; then
-        mapfile -t lines < <(chafa --format=symbols --symbols=block --relative=off --size="${img_width}x${img_height}" "$file" 2>/dev/null || true)
+        _readlines lines < <(chafa --format=symbols --symbols=block --relative=off --size="${img_width}x${img_height}" "$file" 2>/dev/null || true)
         if [[ ${#lines[@]} -gt 0 ]]; then
             printf '%s\n' "${lines[@]}"
             return 0
@@ -488,7 +501,7 @@ image_to_text() {
     fi
 
     if command -v img2txt &>/dev/null; then
-        mapfile -t lines < <(img2txt -W "$img_width" "$file" 2>/dev/null | tr -d '\r' | sed $'s/\x1b\[[su]//g' || true)
+        _readlines lines < <(img2txt -W "$img_width" "$file" 2>/dev/null | tr -d '\r' | sed $'s/\x1b\[[su]//g' || true)
         if [[ ${#lines[@]} -gt 0 ]]; then
             printf '%s\n' "${lines[@]}"
             return 0
@@ -496,7 +509,7 @@ image_to_text() {
     fi
 
     if command -v jp2a &>/dev/null; then
-        mapfile -t lines < <(jp2a --width="$img_width" "$file" 2>/dev/null || true)
+        _readlines lines < <(jp2a --width="$img_width" "$file" 2>/dev/null || true)
         if [[ ${#lines[@]} -gt 0 ]]; then
             printf '%s\n' "${lines[@]}"
             return 0

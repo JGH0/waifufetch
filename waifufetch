@@ -367,7 +367,7 @@ main() {
                     out=$(chafa --format=symbols --symbols=block \
                         --size="${gif_w}x${gif_h}" \
                         "${frames[$idx]}" 2>/dev/null || true)
-                    mapfile -t lines <<< "$out"
+                    _readlines lines < <(printf '%s\n' "$out")
                     local nl=${#lines[@]}
                     # Pad with empty lines to match info_count
                     while (( nl < info_count )); do
@@ -484,7 +484,7 @@ main() {
             else
                 # Can't animate -- show static side-by-side
                 local info_count=$(( ${#INFO_PAIRS[@]} / 2 ))
-                mapfile -t art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
+                _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
                 if [[ ${#art_lines[@]} -gt 0 ]]; then
                     print_side_by_side art_lines INFO_PAIRS
                     [[ $NO_LINK -eq 0 ]] && echo "$image_url"
@@ -497,7 +497,7 @@ main() {
         else
             # Static image: normal side-by-side ASCII art display
             local info_count=$(( ${#INFO_PAIRS[@]} / 2 ))
-            mapfile -t art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
+            _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
 
             if [[ ${#art_lines[@]} -gt 0 ]]; then
                 print_side_by_side art_lines INFO_PAIRS

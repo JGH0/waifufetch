@@ -509,14 +509,22 @@ image_to_text() {
 # ============================================================
 # print_side_by_side - display art and info columns
 # ============================================================
+# Args: $1=art_array_name $2=info_array_name
+# Compatible with bash 3.2 (macOS) — no namerefs.
 print_side_by_side() {
-    local -n _art="$1"
-    local -n _info="$2"
+    local _art_name="$1" _info_name="$2"
     local width="${COLUMNS:-80}"
+
+    # Retrieve array length via eval (bash 3.2 compat, no nameref)
+    local _art_len _info_len
+    eval "_art_len=\${#$_art_name[@]}"
+    eval "_info_len=\${#$_info_name[@]}"
 
     local max_art_w=0
     local line clean len
-    for line in "${_art[@]}"; do
+    local i
+    for ((i=0; i<_art_len; i++)); do
+        eval "line=\${$_art_name[\$i]}"
         clean="$(printf '%s' "$line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')"
         len=${#clean}
         [[ $len -gt $max_art_w ]] && max_art_w=$len
@@ -526,15 +534,15 @@ print_side_by_side() {
     local reset=$'\033[0m'
     local key_color=$'\033[1;36m'
     local info_lines=()
-    local i=0 total="${#_info[@]}" key val
-    while [[ $i -lt $total ]]; do
-        key="${_info[$i]}"
-        val="${_info[$((i+1))]:-}"
+    local j=0 key val
+    while [[ $j -lt $_info_len ]]; do
+        eval "key=\${$_info_name[\$j]}"
+        eval "val=\${$_info_name[\$((j+1))]:-}"
         info_lines+=("${key_color}${key}:${reset} ${val}")
-        i=$((i + 2))
+        j=$((j + 2))
     done
 
-    local max_lines=${#_art[@]}
+    local max_lines=$_art_len
     local max_info=${#info_lines[@]}
     local max=$((max_lines > max_info ? max_lines : max_info))
     local l art_line info_line
@@ -542,7 +550,9 @@ print_side_by_side() {
     for ((l=0; l<max; l++)); do
         art_line=""
         info_line=""
-        [[ $l -lt ${#_art[@]} ]] && art_line="${_art[$l]}"
+        if [[ $l -lt $_art_len ]]; then
+            eval "art_line=\${$_art_name[\$l]}"
+        fi
         [[ $l -lt ${#info_lines[@]} ]] && info_line="${info_lines[$l]}"
 
         if [[ -n "$art_line" && -n "$info_line" ]]; then
@@ -558,12 +568,15 @@ print_side_by_side() {
 # ============================================================
 # print_info_fallback - plain text info display
 # ============================================================
+# Args: $1=array_name — compatible with bash 3.2 (macOS).
 print_info_fallback() {
-    local -n _fallback="$1"
-    local i=0 total="${#_fallback[@]}" key val
-    while [[ $i -lt $total ]]; do
-        key="${_fallback[$i]}"
-        val="${_fallback[$((i+1))]:-}"
+    local _arr_name="$1"
+    local _total
+    eval "_total=\${#$_arr_name[@]}"
+    local i=0 key val
+    while [[ $i -lt $_total ]]; do
+        eval "key=\${$_arr_name[\$i]}"
+        eval "val=\${$_arr_name[\$((i+1))]:-}"
         printf "  %-12s %s\n" "${key}:" "$val"
         i=$((i + 2))
     done
@@ -571,9 +584,12 @@ print_info_fallback() {
 
 # ============================================================
 # collect_info - collect system information (Linux, macOS, BSD)
+# Stores results into a global array INFO_PAIRS.
+# Compatible with bash 3.2 (macOS) — no namerefs.
 # ============================================================
+INFO_PAIRS=()
 collect_info() {
-    local -n _ci="$1"
+    INFO_PAIRS=()
     local os user host uptime_str uptime_secs days hours mins \
           shell term de cpu gpu mem swap disk pkgs res
 
@@ -596,15 +612,15 @@ collect_info() {
             *)       os="$uname_s" ;;
         esac
     fi
-    _ci+=("OS" "$os")
+    INFO_PAIRS+=("OS" "$os")
 
     # ---- Host ----
     user="$(whoami 2>/dev/null || echo "${USER:-unknown}")"
     host="$(hostname 2>/dev/null || echo "unknown")"
-    _ci+=("Host" "${user}@${host}")
+    INFO_PAIRS+=("Host" "${user}@${host}")
 
     # ---- Kernel ----
-    _ci+=("Kernel" "$uname_r")
+    INFO_PAIRS+=("Kernel" "$uname_r")
 
     # ---- Uptime ----
     uptime_str=""
@@ -641,16 +657,16 @@ collect_info() {
             uptime_str="unknown"
         fi
     fi
-    _ci+=("Uptime" "$uptime_str")
+    INFO_PAIRS+=("Uptime" "$uptime_str")
 
     # ---- Shell ----
     shell="${SHELL:-unknown}"
     shell="$(basename "$shell")"
-    _ci+=("Shell" "$shell")
+    INFO_PAIRS+=("Shell" "$shell")
 
     # ---- Terminal ----
     term="${TERM:-unknown}"
-    _ci+=("Terminal" "$term")
+    INFO_PAIRS+=("Terminal" "$term")
 
     # ---- WM/DE ----
     de="${XDG_CURRENT_DESKTOP:-${XDG_SESSION_DESKTOP:-${DESKTOP_SESSION:-}}}"
@@ -676,7 +692,7 @@ collect_info() {
         de="Aqua"
     fi
     [[ -z "$de" ]] && de="Not detected"
-    _ci+=("WM/DE" "$de")
+    INFO_PAIRS+=("WM/DE" "$de")
 
     # ---- CPU ----
     cpu=""
@@ -689,7 +705,7 @@ collect_info() {
     fi
     [[ -z "$cpu" ]] && cpu="$uname_s $uname_r"
     cpu="$(printf '%s' "$cpu" | sed 's/(R)//g; s/(TM)//g; s/ CPU @ [0-9.]*GHz//g; s/  */ /g' | xargs)"
-    _ci+=("CPU" "$cpu")
+    INFO_PAIRS+=("CPU" "$cpu")
 
     # ---- GPU ----
     gpu=""
@@ -701,7 +717,7 @@ collect_info() {
     fi
     [[ -z "$gpu" ]] && gpu="unknown"
     gpu="$(printf '%s' "$gpu" | sed 's/ \(Corporation\|Technology\|Inc\)//g' | xargs)"
-    _ci+=("GPU" "$gpu")
+    INFO_PAIRS+=("GPU" "$gpu")
 
     # ---- Memory ----
     mem=""
@@ -723,7 +739,7 @@ collect_info() {
         [[ -n "$mem_total" ]] && mem="$(_human_size "$mem_total")"
     fi
     [[ -z "$mem" ]] && mem="unknown"
-    _ci+=("Memory" "$mem")
+    INFO_PAIRS+=("Memory" "$mem")
 
     # ---- Swap ----
     swap=""
@@ -733,7 +749,7 @@ collect_info() {
         swap="$(sysctl -n vm.swapusage 2>/dev/null | awk '{gsub(/[=,]/," "); print $4 "/" $2}' || true)"
     fi
     [[ -z "$swap" || "$swap" == "/" ]] && swap="none"
-    _ci+=("Swap" "$swap")
+    INFO_PAIRS+=("Swap" "$swap")
 
     # ---- Disk ----
     disk=""
@@ -741,7 +757,7 @@ collect_info() {
         disk="$(df -h / 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
     fi
     [[ -z "$disk" ]] && disk="unknown"
-    _ci+=("Disk" "$disk")
+    INFO_PAIRS+=("Disk" "$disk")
 
     # ---- Packages ----
     pkgs=0
@@ -795,7 +811,7 @@ collect_info() {
         pkgs=$((pkgs + $(pkg_info 2>/dev/null | wc -l)))
     fi
     if [[ $pkgs -gt 0 ]]; then
-        _ci+=("Packages" "$pkgs")
+        INFO_PAIRS+=("Packages" "$pkgs")
     fi
 
     # ---- Resolution ----
@@ -812,7 +828,7 @@ collect_info() {
     if [[ -z "$res" && "$uname_s" == "Darwin" ]] && command -v system_profiler &>/dev/null; then
         res="$(system_profiler SPDisplaysDataType 2>/dev/null | grep Resolution | head -1 | sed 's/.*: *//; s/ (.*//; s/ x /x/' || true)"
     fi
-    [[ -n "$res" ]] && _ci+=("Resolution" "$res")
+    [[ -n "$res" ]] && INFO_PAIRS+=("Resolution" "$res")
 }
 
 # ============================================================

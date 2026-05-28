@@ -259,8 +259,7 @@ main() {
     fi
 
     # Collect system info
-    declare -a info_pairs=()
-    collect_info info_pairs
+    collect_info
 
     # Try display
     if [[ -s "$tmpfile" ]]; then
@@ -308,7 +307,7 @@ main() {
         if [[ $DISPLAYER_AVAILABLE -eq 0 ]]; then
             # Displayer not available -- show system info without waifu
             echo ""
-            print_info_fallback info_pairs
+            print_info_fallback INFO_PAIRS
             rm -f "$tmpfile"
             return
         fi
@@ -358,7 +357,7 @@ main() {
                 [[ $gif_h -lt 8 ]] && gif_h=8
 
                 # Make animation height fill the info text area
-                local info_count=$(( ${#info_pairs[@]} / 2 ))
+                local info_count=$(( ${#INFO_PAIRS[@]} / 2 ))
                 # Pre-render all frames, pad to fill info text height
                 local frame_art=()
                 local frame_lines=$info_count
@@ -391,8 +390,8 @@ main() {
                 local key_color=$'\033[1;36m'
                 local info_lines=()
                 for ((i=0; i<info_count; i++)); do
-                    local key="${info_pairs[$((i*2))]}"
-                    local val="${info_pairs[$((i*2+1))]}"
+                    local key="${INFO_PAIRS[$((i*2))]}"
+                    local val="${INFO_PAIRS[$((i*2+1))]}"
                     info_lines+=("${key_color}${key}:${reset} ${val}")
                 done
                 local info_col=$((art_width + 2))
@@ -484,29 +483,29 @@ main() {
                 # Cursor is at bottom of output -- prompt appears correctly
             else
                 # Can't animate -- show static side-by-side
-                local info_count=$(( ${#info_pairs[@]} / 2 ))
+                local info_count=$(( ${#INFO_PAIRS[@]} / 2 ))
                 mapfile -t art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
                 if [[ ${#art_lines[@]} -gt 0 ]]; then
-                    print_side_by_side art_lines info_pairs
+                    print_side_by_side art_lines INFO_PAIRS
                     [[ $NO_LINK -eq 0 ]] && echo "$image_url"
                 else
                     echo ""
-                    print_info_fallback info_pairs
+                    print_info_fallback INFO_PAIRS
                 fi
             fi
             rm -rf "$frame_dir" 2>/dev/null || true
         else
             # Static image: normal side-by-side ASCII art display
-            local info_count=$(( ${#info_pairs[@]} / 2 ))
+            local info_count=$(( ${#INFO_PAIRS[@]} / 2 ))
             mapfile -t art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
 
             if [[ ${#art_lines[@]} -gt 0 ]]; then
-                print_side_by_side art_lines info_pairs
+                print_side_by_side art_lines INFO_PAIRS
                 [[ $NO_LINK -eq 0 ]] && echo "$image_url"
             else
                 echo "  Waifu image unavailable (install chafa, img2txt, or jp2a)" >&2
                 echo ""
-                print_info_fallback info_pairs
+                print_info_fallback INFO_PAIRS
             fi
         fi
 
@@ -515,7 +514,7 @@ main() {
 
         rm -f "$tmpfile"
     else
-        print_info_fallback info_pairs
+        print_info_fallback INFO_PAIRS
     fi
 }
 

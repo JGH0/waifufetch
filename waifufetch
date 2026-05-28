@@ -521,6 +521,7 @@ main() {
     else
         print_info_fallback INFO_PAIRS
     fi
+    [[ $DEBUG -eq 1 ]] && echo "[debug] waifufetch: done" >&2
 }
 
 main "$@" || true

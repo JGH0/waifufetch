@@ -43,7 +43,12 @@ main() {
             *)         FILTERED_ARGS+=("$1"); shift ;;
         esac
     done
-    set -- "${FILTERED_ARGS[@]}"
+    # Must guard empty array expansion for bash < 4.0 (macOS) with set -u
+    if [[ ${#FILTERED_ARGS[@]} -eq 0 ]]; then
+        set --
+    else
+        set -- "${FILTERED_ARGS[@]}"
+    fi
 
     # ============================================================
     # Help (scan all args for --help)

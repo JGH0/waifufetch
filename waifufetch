@@ -244,6 +244,7 @@ main() {
     fi
 
     if [[ -z "$image_url" ]]; then
+        # Show system info even when no image is available
         local found=0
         for t in "${ALL_KNOWN_TAGS[@]}"; do
             [[ "$t" == "$CATEGORY" ]] && { found=1; break; }
@@ -252,9 +253,13 @@ main() {
             echo "Error: '$CATEGORY' not found in known categories." >&2
             echo "Run 'waifufetch --help' to see available categories." >&2
         else
-            echo "Error: No images found for '$CATEGORY' with rating '$API_RATING'." >&2
+            if [[ $DEBUG -eq 1 ]]; then
+                echo "[debug] No images for '$CATEGORY' with rating '$API_RATING'" >&2
+            fi
         fi
-        rm -f "$tmpfile"
+        collect_info
+        print_info_fallback INFO_PAIRS
+        rm -f "${tmpfile:-}"
         return
     fi
 
@@ -308,7 +313,7 @@ main() {
             # Displayer not available -- show system info without waifu
             echo ""
             print_info_fallback INFO_PAIRS
-            rm -f "$tmpfile"
+            rm -f "${tmpfile:-}"
             return
         fi
 
@@ -512,7 +517,7 @@ main() {
 
         prefetch_cache
 
-        rm -f "$tmpfile"
+        rm -f "${tmpfile:-}"
     else
         print_info_fallback INFO_PAIRS
     fi

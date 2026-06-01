@@ -20,8 +20,43 @@ main() {
     local FILTERED_ARGS=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --debug)        DEBUG=1; shift ;;
-            --noLink)       NO_LINK=1; shift ;;
+            --debug)                      DEBUG=1; shift ;;
+            --noLink)                     NO_LINK=1; shift ;;
+            --config|-c)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --config/-c requires a file path argument" >&2
+                    exit 1
+                fi
+                CONFIG_PATH="$2"
+                shift 2
+                ;;
+            --list-tags|--list-categories|--list-ratings)
+                local _list_mode="${1#--list-}"
+                local _list_api=""
+                shift
+                # Check if nsfw was given before --list-tags (stored in FILTERED_ARGS)
+                for _pre_arg in "${FILTERED_ARGS[@]}"; do
+                    [[ "$_pre_arg" == "nsfw" ]] && { _list_mode="nsfw"; break; }
+                done
+                # Default --list-tags shows SFW-only tags
+                [[ "$_list_mode" == "tags" ]] && _list_mode="sfw"
+                # Accept: --list-tags <src>, --list-tags -a <src>
+                if [[ $# -ge 1 ]]; then
+                    if [[ "$1" == "-a" || "$1" == "--api" ]]; then
+                        shift; [[ $# -ge 1 ]] && { _list_api="$1"; shift; }
+                    else
+                        for _s in "${KNOWN_API_SOURCES[@]}"; do
+                            [[ "$1" == "$_s" && "$_s" != "auto" ]] && { _list_api="$1"; shift; break; }
+                        done
+                    fi
+                fi
+                print_tag_lists "$_list_mode" "$_list_api"
+                exit 0
+                ;;
+            --help-config)
+                print_config_help
+                exit 0
+                ;;
             --resetSettings)
                 rm -rf "$WAIFU_CONFIG_DIR"
                 echo "Settings reset. Config directory removed: $WAIFU_CONFIG_DIR"
@@ -39,9 +74,30 @@ main() {
                 IMAGE_INPUT_FILE="$2"
                 shift 2
                 ;;
+            -a|--api)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: -a/--api requires an API source argument" >&2
+                    echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+                    exit 1
+                fi
+                local _api_valid=0
+                for _s in "${KNOWN_API_SOURCES[@]}"; do
+                    [[ "$2" == "$_s" ]] && { _api_valid=1; break; }
+                done
+                if [[ $_api_valid -eq 0 ]]; then
+                    echo "Error: Unknown API source '$2'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+                    exit 1
+                fi
+                API_SOURCE="$2"
+                shift 2
+                ;;
             *)         FILTERED_ARGS+=("$1"); shift ;;
         esac
     done
+
+    # Load JSON config
+    load_json_config "${CONFIG_PATH:-$WAIFU_JSON_CONFIG}" || true
+
     # Must guard empty array expansion for bash < 4.0 (macOS) with set -u
     if [[ ${#FILTERED_ARGS[@]} -eq 0 ]]; then
         set --
@@ -140,6 +196,41 @@ main() {
     fi
 
     # ============================================================
+    # Set default API
+    # ============================================================
+    if [[ "${1:-}" == "--setDefaultAPI" ]]; then
+        if [[ $# -lt 2 ]]; then
+            echo "Usage: waifufetch --setDefaultAPI <source>"
+            echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru"
+            echo "Run with empty value to reset to default: --setDefaultAPI \"\""
+            exit 1
+        fi
+        local NEW_API_VAL="$2"
+        if [[ -z "$NEW_API_VAL" ]]; then
+            rm -f "$WAIFU_API_FILE"
+            echo "Default API source reset to: auto (fallback chain)"
+            exit 0
+        fi
+        local _api_valid=0
+        for _s in "${KNOWN_API_SOURCES[@]}"; do
+            [[ "$NEW_API_VAL" == "$_s" ]] && { _api_valid=1; break; }
+        done
+        if [[ $_api_valid -eq 0 ]]; then
+            echo "Error: Invalid API source '$NEW_API_VAL'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+            exit 1
+        fi
+        mkdir -p "$WAIFU_CONFIG_DIR"
+        printf '%s\n' "$NEW_API_VAL" > "$WAIFU_API_FILE"
+        echo "Default API source set to: $NEW_API_VAL"
+        echo "  auto       - fallback chain: nekosapi -> waifu.im -> nekos.best -> danbooru"
+        echo "  waifu.im   - waifu.im only"
+        echo "  nekosapi   - nekosapi.com v4 only"
+        echo "  nekos.best - nekos.best only"
+        echo "  danbooru   - Danbooru only (JSON API) - supports femboy, trap, and more"
+        exit 0
+    fi
+
+    # ============================================================
     # Parse positional displayer from first arg
     # ============================================================
     DISPLAYER="$DEFAULT_DISPLAYER"
@@ -221,11 +312,25 @@ main() {
         echo "[debug] displayer:    ${DISPLAYER:-auto}" >&2
     fi
 
+    local HAS_CONFIG=0
+
+    # ============================================================
+    # Dependency checks
+    # ============================================================
+    if [[ -f "$WAIFU_JSON_CONFIG" && ! -r "$WAIFU_JSON_CONFIG" ]]; then
+        echo "Warning: Config file exists but is not readable: $WAIFU_JSON_CONFIG" >&2
+    fi
+    if [[ -f "$WAIFU_JSON_CONFIG" ]] && ! command -v jq &>/dev/null; then
+        echo "Warning: 'jq' not found -- JSON config at $WAIFU_JSON_CONFIG will be ignored." >&2
+        echo "Install jq with your package manager (e.g. pacman -S jq)." >&2
+    fi
+
     # ============================================================
     # Main
     # ============================================================
     local tmpfile
     local image_url=""
+    local offline_msg=""
 
     if [[ -n "$IMAGE_INPUT_FILE" ]]; then
         # Local file mode (-i <path>)
@@ -236,14 +341,29 @@ main() {
         tmpfile="$(_mktemp)" && cp "$IMAGE_INPUT_FILE" "$tmpfile"
         image_url="file://$IMAGE_INPUT_FILE"
     else
-        fetch_and_cache
-        if [[ -n "$IMAGE_URL" && -n "$IMAGE_FILE" && -s "$IMAGE_FILE" ]]; then
-            tmpfile="$IMAGE_FILE"
-            image_url="$IMAGE_URL"
+        if ! command -v curl &>/dev/null; then
+            echo "Warning: 'curl' not found -- cannot fetch waifu images." >&2
+            echo "Install curl or use -i <file> for local images." >&2
+            offline_msg="'curl' missing -- waifu image not available."
+        else
+            fetch_and_cache
+            if [[ -n "$IMAGE_URL" && -n "$IMAGE_FILE" && -s "$IMAGE_FILE" ]]; then
+                tmpfile="$IMAGE_FILE"
+                image_url="$IMAGE_URL"
+            fi
         fi
     fi
 
     if [[ -z "$image_url" ]]; then
+        # Detect offline condition
+        if [[ -z "$offline_msg" ]] && command -v curl &>/dev/null; then
+            local _ping_check
+            _ping_check="$(curl -sf --max-time 2 https://ifconfig.me 2>/dev/null || true)"
+            if [[ -z "$_ping_check" ]]; then
+                offline_msg="No internet connection -- waifu image not available."
+            fi
+        fi
+
         # Show system info even when no image is available
         local found=0
         for t in "${ALL_KNOWN_TAGS[@]}"; do
@@ -253,18 +373,37 @@ main() {
             echo "Error: '$CATEGORY' not found in known categories." >&2
             echo "Run 'waifufetch --help' to see available categories." >&2
         else
-            if [[ $DEBUG -eq 1 ]]; then
+            if [[ -n "$offline_msg" ]]; then
+                echo "$offline_msg" >&2
+            elif [[ $DEBUG -eq 1 ]]; then
                 echo "[debug] No images for '$CATEGORY' with rating '$API_RATING'" >&2
             fi
         fi
         collect_info
-        print_info_fallback INFO_PAIRS
+        render_info_lines "$HAS_CONFIG"
+        for _line in "${INFO_LINES[@]}"; do
+            printf '  %s\n' "$_line"
+        done
         rm -f "${tmpfile:-}"
         return
     fi
 
     # Collect system info
     collect_info
+
+    # Determine if we have a config module override
+    [[ -n "$CONFIG_MODULES_OVERRIDE" ]] && HAS_CONFIG=1
+
+    # Render info lines (sets INFO_LINES, INFO_LINES_PLAIN, INFO_LINE_COUNT)
+    render_info_lines $HAS_CONFIG
+
+    # Find widest plain info line for art sizing
+    local max_info_width=0
+    local _il
+    for _il in "${INFO_LINES_PLAIN[@]}"; do
+        local _len=${#_il}
+        [[ $_len -gt $max_info_width ]] && max_info_width=$_len
+    done
 
     # Try display
     if [[ -s "$tmpfile" ]]; then
@@ -311,14 +450,17 @@ main() {
 
         if [[ $DISPLAYER_AVAILABLE -eq 0 ]]; then
             # Displayer not available -- show system info without waifu
-            echo ""
-            print_info_fallback INFO_PAIRS
+            local i
+            for ((i=0; i<CONFIG_LOGO_PADDING_TOP; i++)); do echo; done
+            for _line in "${INFO_LINES[@]}"; do
+                printf '  %s\n' "$_line"
+            done
             rm -f "${tmpfile:-}"
             return
         fi
 
         # icat for waifufetch uses text-art side-by-side (native icat
-        # is meant for the standalone `waifu` command, not for fetch display)
+        # is meant for the standalone \`waifu\` command, not for fetch display)
         if [[ "$DISPLAYER" == "icat" ]]; then
             DISPLAYER=""
         fi
@@ -338,6 +480,10 @@ main() {
             fi
         fi
 
+        # ---- Logo padding top ----
+        local i
+        for ((i=0; i<CONFIG_LOGO_PADDING_TOP; i++)); do echo; done
+
         # ---- GIF animation (skipped when static displayer chosen) ----
         if is_gif_file "$tmpfile" \
             && [[ "$DISPLAYER" != "jp2a" && "$DISPLAYER" != "img2txt" ]]; then
@@ -355,14 +501,27 @@ main() {
             local frame_count=${#frames[@]}
 
             if [[ $frame_count -gt 1 ]] && command -v chafa &>/dev/null; then
-                local gif_w=$((width / 3))
+                # Smart GIF sizing: half terminal width, leave room for info
+                local gif_w=$((width / 2 - 2))
+                if [[ $max_info_width -gt 0 ]]; then
+                    local available=$((width - max_info_width - 4))
+                    [[ $available -lt $gif_w ]] && gif_w=$available
+                fi
                 [[ $gif_w -lt 15 ]] && gif_w=15
-                [[ $gif_w -gt 40 ]] && gif_w=40
+                [[ $gif_w -gt 100 ]] && gif_w=100
                 local gif_h=$((gif_w * 2 / 3))
-                [[ $gif_h -lt 8 ]] && gif_h=8
+                # Match info line count, cap at terminal height
+                local term_height="${LINES:-24}"
+                command -v tput &>/dev/null && term_height="$(tput lines 2>/dev/null || echo 24)"
+                local height_cap=$((term_height - 3))
+                [[ $INFO_LINE_COUNT -gt $gif_h ]] && gif_h=$INFO_LINE_COUNT
+                [[ $gif_h -gt $height_cap ]] && gif_h=$height_cap
+                [[ $gif_h -lt 5 ]] && gif_h=5
 
-                # Make animation height fill the info text area
-                local info_count=$(( ${#INFO_PAIRS[@]} / 2 ))
+                # Use rendered info lines instead of re-building them
+                local info_count=$INFO_LINE_COUNT
+                local info_lines=("${INFO_LINES[@]}")
+
                 # Pre-render all frames, pad to fill info text height
                 local frame_art=()
                 local frame_lines=$info_count
@@ -390,15 +549,6 @@ main() {
                 done
                 [[ $art_width -lt 1 ]] && art_width=$gif_w
 
-                # Build formatted info lines (colored, like print_side_by_side)
-                local reset=$'\033[0m'
-                local key_color=$'\033[1;36m'
-                local info_lines=()
-                for ((i=0; i<info_count; i++)); do
-                    local key="${INFO_PAIRS[$((i*2))]}"
-                    local val="${INFO_PAIRS[$((i*2+1))]}"
-                    info_lines+=("${key_color}${key}:${reset} ${val}")
-                done
                 local info_col=$((art_width + 2))
                 local display_lines=$frame_lines
 
@@ -421,7 +571,6 @@ main() {
                 fi
 
                 # Print blank lines for animation area
-                local i
                 for ((i=0; i<display_lines; i++)); do echo; done
                 # Print URL below
                 [[ $NO_LINK -eq 0 ]] && echo "$image_url"
@@ -487,39 +636,41 @@ main() {
                 [[ $NO_LINK -eq 0 ]] && echo "$image_url"
                 # Cursor is at bottom of output -- prompt appears correctly
             else
-                # Can't animate -- show static side-by-side
-                local info_count=$(( ${#INFO_PAIRS[@]} / 2 ))
-                _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
+                # Can't animate -- show static side-by-side with INFO_LINES
+                _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" "$DISPLAYER" "$max_info_width" || true)
                 if [[ ${#art_lines[@]} -gt 0 ]]; then
-                    print_side_by_side art_lines INFO_PAIRS
+                    print_side_by_side_raw art_lines INFO_LINES
                     [[ $NO_LINK -eq 0 ]] && echo "$image_url"
                 else
                     echo ""
-                    print_info_fallback INFO_PAIRS
+                    for _line in "${INFO_LINES[@]}"; do
+                        printf '  %s\n' "$_line"
+                    done
                 fi
             fi
             rm -rf "$frame_dir" 2>/dev/null || true
         else
             # Static image: normal side-by-side ASCII art display
-            local info_count=$(( ${#INFO_PAIRS[@]} / 2 ))
-            _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$info_count" "$DISPLAYER" || true)
+            _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" "$DISPLAYER" "$max_info_width" || true)
 
             if [[ ${#art_lines[@]} -gt 0 ]]; then
-                print_side_by_side art_lines INFO_PAIRS
+                print_side_by_side_raw art_lines INFO_LINES
                 [[ $NO_LINK -eq 0 ]] && echo "$image_url"
             else
                 echo "  Waifu image unavailable (install chafa, img2txt, or jp2a)" >&2
                 echo ""
-                print_info_fallback INFO_PAIRS
+                for _line in "${INFO_LINES[@]}"; do
+                    printf '  %s\n' "$_line"
+                done
             fi
         fi
 
-
         prefetch_cache
-
         rm -f "${tmpfile:-}"
     else
-        print_info_fallback INFO_PAIRS
+        for _line in "${INFO_LINES[@]}"; do
+            printf '  %s\n' "$_line"
+        done
     fi
     [[ $DEBUG -eq 1 ]] && echo "[debug] waifufetch: done" >&2
 }

@@ -21,8 +21,35 @@ main() {
     local FILTERED_ARGS=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --debug)        DEBUG=1; shift ;;
-            --noLink)       NO_LINK=1; shift ;;
+            --debug)                      DEBUG=1; shift ;;
+            --noLink)                     NO_LINK=1; shift ;;
+            --list-tags|--list-categories|--list-ratings)
+                local _list_mode="${1#--list-}"
+                local _list_api=""
+                shift
+                # Check if nsfw was given before --list-tags (stored in FILTERED_ARGS)
+                for _pre_arg in "${FILTERED_ARGS[@]}"; do
+                    [[ "$_pre_arg" == "nsfw" ]] && { _list_mode="nsfw"; break; }
+                done
+                # Default --list-tags shows SFW-only tags
+                [[ "$_list_mode" == "tags" ]] && _list_mode="sfw"
+                # Accept: --list-tags <src>, --list-tags -a <src>
+                if [[ $# -ge 1 ]]; then
+                    if [[ "$1" == "-a" || "$1" == "--api" ]]; then
+                        shift; [[ $# -ge 1 ]] && { _list_api="$1"; shift; }
+                    else
+                        for _s in "${KNOWN_API_SOURCES[@]}"; do
+                            [[ "$1" == "$_s" && "$_s" != "auto" ]] && { _list_api="$1"; shift; break; }
+                        done
+                    fi
+                fi
+                print_tag_lists "$_list_mode" "$_list_api"
+                exit 0
+                ;;
+            --help-config)
+                print_config_help
+                exit 0
+                ;;
             --resetSettings)
                 rm -rf "$WAIFU_CONFIG_DIR"
                 echo "Settings reset. Config directory removed: $WAIFU_CONFIG_DIR"
@@ -38,6 +65,23 @@ main() {
                     exit 1
                 fi
                 IMAGE_INPUT_FILE="$2"
+                shift 2
+                ;;
+            -a|--api)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: -a/--api requires an API source argument" >&2
+                    echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+                    exit 1
+                fi
+                local _api_valid=0
+                for _s in "${KNOWN_API_SOURCES[@]}"; do
+                    [[ "$2" == "$_s" ]] && { _api_valid=1; break; }
+                done
+                if [[ $_api_valid -eq 0 ]]; then
+                    echo "Error: Unknown API source '$2'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+                    exit 1
+                fi
+                API_SOURCE="$2"
                 shift 2
                 ;;
             *)         FILTERED_ARGS+=("$1"); shift ;;
@@ -141,6 +185,41 @@ main() {
                 exit 1
                 ;;
         esac
+        exit 0
+    fi
+
+    # ============================================================
+    # Set default API
+    # ============================================================
+    if [[ "${1:-}" == "--setDefaultAPI" ]]; then
+        if [[ $# -lt 2 ]]; then
+            echo "Usage: waifu --setDefaultAPI <source>"
+            echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru"
+            echo "Run with empty value to reset to default: --setDefaultAPI \"\""
+            exit 1
+        fi
+        local NEW_API_VAL="$2"
+        if [[ -z "$NEW_API_VAL" ]]; then
+            rm -f "$WAIFU_API_FILE"
+            echo "Default API source reset to: auto (fallback chain)"
+            exit 0
+        fi
+        local _api_valid=0
+        for _s in "${KNOWN_API_SOURCES[@]}"; do
+            [[ "$NEW_API_VAL" == "$_s" ]] && { _api_valid=1; break; }
+        done
+        if [[ $_api_valid -eq 0 ]]; then
+            echo "Error: Invalid API source '$NEW_API_VAL'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+            exit 1
+        fi
+        mkdir -p "$WAIFU_CONFIG_DIR"
+        printf '%s\n' "$NEW_API_VAL" > "$WAIFU_API_FILE"
+        echo "Default API source set to: $NEW_API_VAL"
+        echo "  auto       - fallback chain: nekosapi -> waifu.im -> nekos.best -> danbooru"
+        echo "  waifu.im   - waifu.im only"
+        echo "  nekosapi   - nekosapi.com v4 only"
+        echo "  nekos.best - nekos.best only"
+        echo "  danbooru   - Danbooru only (JSON API) - supports femboy, trap, and more"
         exit 0
     fi
 
@@ -253,6 +332,10 @@ main() {
     # Cache + fetch (skip for local file mode)
     # ============================================================
     if [[ -z "$IMAGE_INPUT_FILE" ]]; then
+        if ! command -v curl &>/dev/null; then
+            echo "Error: 'curl' not found. Install curl or use 'waifu -i <file>' for local images." >&2
+            exit 1
+        fi
         fetch_and_cache
 
         if [[ -z "$IMAGE_URL" ]]; then

@@ -1269,7 +1269,7 @@ collect_info() {
     if [[ -z "$local_ip" ]] && command -v ipconfig &>/dev/null; then
         local_ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
     fi
-    [[ -n "$local_ip" ]] && INFO_PAIRS+=("Local IP" "$local_ip")
+    # [[ -n "$local_ip" ]] && INFO_PAIRS+=("Local IP" "$local_ip")
 
     # ---- Public IP ----
     local public_ip=""
@@ -1278,7 +1278,8 @@ collect_info() {
                      curl -sf --max-time 2 https://api.ipify.org 2>/dev/null || true)"
     fi
     if [[ -n "$public_ip" ]]; then
-        INFO_PAIRS+=("Public IP" "$public_ip")
+        : # not shown by default
+        # INFO_PAIRS+=("Public IP" "$public_ip")
     fi
 
     # ---- Battery ----
@@ -1306,13 +1307,14 @@ collect_info() {
         battery="$(pmset -g batt 2>/dev/null | grep -oE '[0-9]+%' | head -1 || true)"
     fi
     if [[ -n "$battery" ]]; then
-        INFO_PAIRS+=("Battery" "$battery")
+        : # not shown by default
+        # INFO_PAIRS+=("Battery" "$battery")
     fi
 
     # ---- Locale ----
     local locale_val=""
     locale_val="${LANG:-${LC_ALL:-${LC_MESSAGES:-}}}"
-    [[ -n "$locale_val" ]] && INFO_PAIRS+=("Locale" "$locale_val")
+    # [[ -n "$locale_val" ]] && INFO_PAIRS+=("Locale" "$locale_val")
 
     # ---- Terminal Font ----
     local term_font=""
@@ -1378,7 +1380,8 @@ collect_info() {
         [[ -z "$monitors" ]] && monitors=0
     fi
     if [[ "$monitors" -gt 0 ]]; then
-        INFO_PAIRS+=("Monitor" "${monitors} display(s)")
+        : # not shown by default
+        # INFO_PAIRS+=("Monitor" "${monitors} display(s)")
     fi
 
     # ---- DE (separate from WM for config compat) ----
@@ -1391,7 +1394,8 @@ collect_info() {
         uptime_unix="$(( $(date +%s 2>/dev/null || echo 0) - uptime_secs ))"
     fi
     if [[ "$uptime_unix" -gt 0 ]]; then
-        INFO_PAIRS+=("Uptime Unix" "$uptime_unix")
+        : # not shown by default
+        # INFO_PAIRS+=("Uptime Unix" "$uptime_unix")
     fi
 
     # ---- Song (playerctl) ----
@@ -1399,7 +1403,7 @@ collect_info() {
     if command -v playerctl &>/dev/null; then
         song="$(playerctl metadata --format '{{artist}} - {{title}}' 2>/dev/null || true)"
     fi
-    [[ -n "$song" ]] && INFO_PAIRS+=("Song" "$song")
+    # [[ -n "$song" ]] && INFO_PAIRS+=("Song" "$song")
 
     # ---- Init ----
     local init=""
@@ -1414,21 +1418,21 @@ collect_info() {
     elif [[ -x /sbin/init ]]; then
         init="$(/sbin/init --version 2>/dev/null | head -1 | sed 's/ .*//' || echo "sysvinit")"
     fi
-    [[ -n "$init" ]] && INFO_PAIRS+=("Init" "$init")
+    # [[ -n "$init" ]] && INFO_PAIRS+=("Init" "$init")
 
     # ---- Date/Time ----
     local date_now=""
     if command -v date &>/dev/null; then
         date_now="$(date '+%Y-%m-%d %H:%M' 2>/dev/null || true)"
     fi
-    [[ -n "$date_now" ]] && INFO_PAIRS+=("Date" "$date_now")
+    # [[ -n "$date_now" ]] && INFO_PAIRS+=("Date" "$date_now")
 
     # ---- Disk Total ----
     local disk_total=""
     if command -v df &>/dev/null; then
         disk_total="$(df -h / 2>/dev/null | awk 'NR==2 {print $2}')"
     fi
-    [[ -n "$disk_total" ]] && INFO_PAIRS+=("Disk Total" "$disk_total")
+    # [[ -n "$disk_total" ]] && INFO_PAIRS+=("Disk Total" "$disk_total")
 
     # ---- Config-friendly aliases (fastfetch-style type names) ----
     # These ADDITIONAL entries ensure fastfetch-style configs like
@@ -1444,29 +1448,37 @@ collect_info() {
         INFO_PAIRS+=("terminalfont" "$term_font")
     fi
     if [[ -n "$local_ip" ]]; then
-        INFO_PAIRS+=("localip" "$local_ip")
+        : # not shown by default
+        # INFO_PAIRS+=("localip" "$local_ip")
     fi
     # Public IP — opt-out via --no-public-ip flag
     if [[ -n "$public_ip" ]]; then
-        INFO_PAIRS+=("publicip" "$public_ip")
+        : # not shown by default
+        # INFO_PAIRS+=("publicip" "$public_ip")
     fi
     if [[ -n "$song" ]]; then
-        INFO_PAIRS+=("song" "$song")
+        : # not shown by default
+        # INFO_PAIRS+=("song" "$song")
     fi
     if [[ "$monitors" -gt 0 ]]; then
-        INFO_PAIRS+=("monitor" "${monitors} display(s)")
+        : # not shown by default
+        # INFO_PAIRS+=("monitor" "${monitors} display(s)")
     fi
     if [[ -n "$disk_total" ]]; then
-        INFO_PAIRS+=("disk_total" "$disk_total")
+        : # not shown by default
+        # INFO_PAIRS+=("disk_total" "$disk_total")
     fi
     if [[ -n "$uptime_unix" && "$uptime_unix" -gt 0 ]]; then
-        INFO_PAIRS+=("uptime_unix" "$uptime_unix")
+        : # not shown by default
+        # INFO_PAIRS+=("uptime_unix" "$uptime_unix")
     fi
     if [[ -n "$init" ]]; then
-        INFO_PAIRS+=("init" "$init")
+        : # not shown by default
+        # INFO_PAIRS+=("init" "$init")
     fi
     if [[ -n "$date_now" ]]; then
-        INFO_PAIRS+=("date" "$date_now")
+        : # not shown by default
+        # INFO_PAIRS+=("date" "$date_now")
     fi
 
     # ---- Disk IO / Partition / Filesystem info ----

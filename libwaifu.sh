@@ -1438,7 +1438,7 @@ collect_info() {
     # These ADDITIONAL entries ensure fastfetch-style configs like
     # { "type": "wmtheme" } find matching keys via case-insensitive lookup.
     # bash 3.2 compat: no associative arrays.
-    INFO_PAIRS+=("Localhost" "${user}@${host}")
+    # INFO_PAIRS+=("Localhost" "${user}@${host}")  # Host already shown above
     INFO_PAIRS+=("DE" "$de")
     INFO_PAIRS+=("WM" "$de")
     if [[ -n "${wm_theme:-}" ]]; then

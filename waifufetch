@@ -349,6 +349,14 @@ main() {
             echo "Warning: 'curl' not found -- cannot fetch waifu images." >&2
             echo "Install curl or use -i <file> for local images." >&2
             offline_msg="'curl' missing -- waifu image not available."
+        elif ! curl --version &>/dev/null; then
+            echo "Warning: curl is installed but broken (library link error?)." >&2
+            echo "Try: pkg upgrade curl libngtcp2     (Termux)" >&2
+            echo "  or: pacman -S curl                 (Arch)" >&2
+            echo "  or: apt install --reinstall curl   (Debian)" >&2
+            offline_msg="curl is broken -- waifu image not available."
+            # Invalidate cache to prevent corrupted image display
+            rm -f /tmp/waifu/meta.txt /tmp/waifu/img 2>/dev/null || true
         else
             fetch_and_cache
             if [[ -n "$IMAGE_URL" && -n "$IMAGE_FILE" && -s "$IMAGE_FILE" ]]; then

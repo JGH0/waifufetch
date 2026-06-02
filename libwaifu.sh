@@ -123,17 +123,23 @@ fi
 
 
 
-# Color name -> ANSI code mapping
-declare -A COLOR_NAMES
-COLOR_NAMES[black]=30
-COLOR_NAMES[red]=31
-COLOR_NAMES[green]=32
-COLOR_NAMES[yellow]=33
-COLOR_NAMES[blue]=34
-COLOR_NAMES[magenta]=35
-COLOR_NAMES[cyan]=36
-COLOR_NAMES[white]=37
-COLOR_NAMES[reset]=0
+# bash 3.2 (macOS) compat: no associative arrays — use a function instead
+# Color name -> ANSI raw code (e.g. red -> 31)
+_get_color_raw_code() {
+    local name="$1"
+    case "$name" in
+        black)   echo 30 ;;
+        red)     echo 31 ;;
+        green)   echo 32 ;;
+        yellow)  echo 33 ;;
+        blue)    echo 34 ;;
+        magenta) echo 35 ;;
+        cyan)    echo 36 ;;
+        white)   echo 37 ;;
+        reset)   echo 0 ;;
+        *)       echo "" ;;
+    esac
+}
 
 # Returns a color code as "1;31" or "31" ready for \033[...m
 # Accepts: numeric (31), named ("red"), bold-named ("bold red")
@@ -150,11 +156,7 @@ _resolve_color() {
         bold=1
         spec="${spec#bold }"
     fi
-    if [[ -n "${COLOR_NAMES[$spec]:-}" ]]; then
-        code="${COLOR_NAMES[$spec]}"
-    else
-        code=""
-    fi
+    code="$(_get_color_raw_code "$spec")"
     if [[ -n "$code" ]]; then
         if [[ $bold -eq 1 ]]; then
             echo "1;${code}"
@@ -1106,7 +1108,7 @@ collect_info() {
     if [[ -z "$uptime_str" ]]; then
         # fallback: parse uptime output (varies by OS)
         local raw_uptime
-        raw_uptime="$(uptime 2>/dev/null | sed 's/.* up *//; s/,.*//; s/\s\+/ /g' | xargs || true)"
+        raw_uptime="$(uptime 2>/dev/null | sed 's/.* up *//; s/,.*//' | tr -s ' ' | xargs || true)"
         if echo "$raw_uptime" | grep -qE '^[0-9]+:[0-9]+'; then
             local uh um
             uh="${raw_uptime%%:*}"

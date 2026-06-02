@@ -57,6 +57,10 @@ main() {
                 print_config_help
                 exit 0
                 ;;
+            --print-default-config)
+                echo "$WAIFU_DEFAULT_CONFIG_JSON"
+                exit 0
+                ;;
             --resetSettings)
                 rm -rf "$WAIFU_CONFIG_DIR"
                 echo "Settings reset. Config directory removed: $WAIFU_CONFIG_DIR"

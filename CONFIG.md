@@ -7,6 +7,43 @@ info display. The config is loaded from one of these locations:
 - `$XDG_CONFIG_HOME/waifufetch/config.json`
 - Custom path via `--config <path>` or `-c <path>`
 
+## Built-in Default
+
+When no config file is found, waifufetch uses a built-in default:
+
+```
+OS:        Arch Linux      (bold cyan)
+Host:      jgh@archa       (bold cyan)
+Kernel:    6.x.x-zen1      (bold cyan)
+
+Uptime:    2h 15m          (bold green)
+Packages:  2401            (bold green)
+Shell:     fish            (bold green)
+Terminal:  kitty           (bold green)
+
+CPU:       11th Gen ...    (bold yellow)
+GPU:       Intel ...       (bold yellow)
+Memory:    6.0Gi/15Gi      (bold yellow)
+Disk:      373G/468G       (bold yellow)
+
+WM:        sway            (bold magenta)
+Display:   1920x1080       (bold magenta)
+
+Now:       Song - Artist   (bold white)
+Date:      2026-06-02      (bold white)
+```
+
+The default is compiled into the script. To customise, create
+`~/.config/waifufetch/config.json` with your own layout.
+
+Copy the built-in default into your config dir to start customising:
+
+```bash
+waifufetch --print-default-config > ~/.config/waifufetch/config.json
+```
+
+_(`--print-default-config` dumps the embedded JSON to stdout)_
+
 ## Quick Example
 
 ```json

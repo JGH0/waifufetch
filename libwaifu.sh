@@ -77,6 +77,37 @@ CONFIG_LOGO_PADDING_TOP=0
 CONFIG_SEPARATOR=": "
 CONFIG_MODULES_OVERRIDE=""  # filled by load_json_config
 
+# Built-in default config (used when no config.json exists)
+WAIFU_DEFAULT_CONFIG_JSON='{
+  "logo": {
+    "padding": { "top": 1 }
+  },
+  "display": {
+    "separator": ": "
+  },
+  "modules": [
+    { "type": "os",        "key": "OS",        "keyColor": "bold cyan" },
+    { "type": "host",      "key": "Host",      "keyColor": "bold cyan" },
+    { "type": "kernel",    "key": "Kernel",    "keyColor": "bold cyan" },
+    "break",
+    { "type": "uptime",    "key": "Uptime",    "keyColor": "bold green" },
+    { "type": "packages",  "key": "Packages",  "keyColor": "bold green" },
+    { "type": "shell",     "key": "Shell",     "keyColor": "bold green" },
+    { "type": "terminal",  "key": "Terminal",  "keyColor": "bold green" },
+    "break",
+    { "type": "cpu",       "key": "CPU",       "keyColor": "bold yellow" },
+    { "type": "gpu",       "key": "GPU",       "keyColor": "bold yellow" },
+    { "type": "memory",    "key": "Memory",    "keyColor": "bold yellow" },
+    { "type": "disk",      "key": "Disk",      "keyColor": "bold yellow" },
+    "break",
+    { "type": "wm",        "key": "WM",        "keyColor": "bold magenta" },
+    { "type": "resolution","key": "Display",   "keyColor": "bold magenta" },
+    "break",
+    { "type": "song",      "key": "Now",       "keyColor": "bold white" },
+    { "type": "date",      "key": "Date",      "keyColor": "bold white" }
+  ]
+}'
+
 # ============================================================
 # Default API source config
 # ============================================================
@@ -140,21 +171,28 @@ _resolve_color() {
 # Sets globals: CONFIG_LOGO_PADDING_TOP, CONFIG_SEPARATOR, CONFIG_MODULES_OVERRIDE
 load_json_config() {
     local cfg="${1:-$WAIFU_JSON_CONFIG}"
-    [[ -f "$cfg" ]] || return 1
     command -v jq &>/dev/null || return 1
+
+    local json
+    if [[ -f "$cfg" ]]; then
+        json="$(cat "$cfg")"
+    else
+        # Use built-in default config when no file exists
+        json="$WAIFU_DEFAULT_CONFIG_JSON"
+    fi
 
     local val
 
     # logo.padding.top
-    val="$(jq -r '.logo.padding.top // 0' "$cfg" 2>/dev/null || echo 0)"
+    val="$(echo "$json" | jq -r '.logo.padding.top // 0' 2>/dev/null || echo 0)"
     [[ "$val" =~ ^[0-9]+$ ]] && CONFIG_LOGO_PADDING_TOP="$val"
 
     # display.separator
-    val="$(jq -r '.display.separator // ": "' "$cfg" 2>/dev/null || echo ": ")"
+    val="$(echo "$json" | jq -r '.display.separator // ": "' 2>/dev/null || echo ": ")"
     CONFIG_SEPARATOR="$val"
 
     # modules — store as JSON string for later processing
-    CONFIG_MODULES_OVERRIDE="$(jq -c '.modules // []' "$cfg" 2>/dev/null || echo "")"
+    CONFIG_MODULES_OVERRIDE="$(echo "$json" | jq -c '.modules // []' 2>/dev/null || echo "")"
 
     return 0
 }

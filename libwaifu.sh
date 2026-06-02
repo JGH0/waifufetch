@@ -1064,12 +1064,32 @@ collect_info() {
     local uname_s="$(uname -s 2>/dev/null || echo 'unknown')"
     local uname_r="$(uname -r 2>/dev/null || echo 'unknown')"
 
+    # ---- Android detection (Termux / custom ROM environments) ----
+    local _is_android=0
+    if [[ -n "${ANDROID_ROOT:-}" ]] || [[ -d /data/data/com.termux/files ]] || command -v termux-info &>/dev/null; then
+        _is_android=1
+    fi
+
     # ---- OS ----
     os=""
     if [[ -f /etc/os-release ]]; then
         os="$(sed -n 's/^PRETTY_NAME="\(.*\)"/\1/p' /etc/os-release 2>/dev/null || \
               sed -n 's/^NAME="\(.*\)"/\1/p' /etc/os-release 2>/dev/null || \
               sed -n 's/^NAME=\([^"]*\)/\1/p' /etc/os-release 2>/dev/null)"
+    fi
+    if [[ -z "$os" && $_is_android -eq 1 ]]; then
+        local _android_ver=""
+        if command -v getprop &>/dev/null; then
+            _android_ver="$(getprop ro.build.version.release 2>/dev/null || echo "")"
+        fi
+        if [[ -n "$_android_ver" ]]; then
+            os="Android ${_android_ver}"
+        else
+            os="Android"
+        fi
+        if [[ -n "${TERMUX_VERSION:-}" ]]; then
+            os="${os} (Termux)"
+        fi
     fi
     if [[ -z "$os" ]]; then
         case "$uname_s" in
@@ -1166,6 +1186,9 @@ collect_info() {
     if [[ -z "$de" && "$uname_s" == "Darwin" ]]; then
         de="Aqua"
     fi
+    if [[ -z "$de" && $_is_android -eq 1 ]]; then
+        de="Android"
+    fi
     [[ -z "$de" ]] && de="Not detected"
     INFO_PAIRS+=("WM/DE" "$de")
 
@@ -1173,6 +1196,10 @@ collect_info() {
     cpu=""
     if [[ -f /proc/cpuinfo ]]; then
         cpu="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | sed 's/.*: //' || true)"
+        if [[ -z "$cpu" ]]; then
+            # ARM / Android: /proc/cpuinfo uses 'Hardware' instead of 'model name'
+            cpu="$(grep -m1 'Hardware' /proc/cpuinfo 2>/dev/null | sed 's/.*: //' || true)"
+        fi
     fi
     if [[ -z "$cpu" ]] && command -v sysctl &>/dev/null; then
         cpu="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || \
@@ -1189,6 +1216,10 @@ collect_info() {
     fi
     if [[ -z "$gpu" && "$uname_s" == "Darwin" ]] && command -v system_profiler &>/dev/null; then
         gpu="$(system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/ {print $2; exit}' || true)"
+    fi
+    if [[ -z "$gpu" && $_is_android -eq 1 ]] && command -v getprop &>/dev/null; then
+        gpu="$(getprop ro.hardware.egl 2>/dev/null || getprop ro.board.platform 2>/dev/null || true)"
+        [[ "$gpu" == "swiftshader" ]] && gpu=""
     fi
     [[ -z "$gpu" ]] && gpu="unknown"
     gpu="$(printf '%s' "$gpu" | sed 's/ \(Corporation\|Technology\|Inc\)//g' | xargs)"
@@ -1240,7 +1271,11 @@ collect_info() {
         pkgs=$((pkgs + $(pacman -Q 2>/dev/null | wc -l)))
     fi
     if command -v dpkg &>/dev/null; then
-        pkgs=$((pkgs + $(dpkg -l 2>/dev/null | wc -l)))
+        if [[ $_is_android -eq 1 ]] && command -v pkg &>/dev/null; then
+            pkgs=$((pkgs + $(pkg list-installed 2>/dev/null | wc -l)))
+        else
+            pkgs=$((pkgs + $(dpkg -l 2>/dev/null | wc -l)))
+        fi
     fi
     if command -v rpm &>/dev/null; then
         pkgs=$((pkgs + $(rpm -qa 2>/dev/null | wc -l)))
@@ -1352,6 +1387,18 @@ collect_info() {
     if [[ -z "$battery" ]] && command -v pmset &>/dev/null; then
         battery="$(pmset -g batt 2>/dev/null | grep -oE '[0-9]+%' | head -1 || true)"
     fi
+    if [[ -z "$battery" ]] && command -v termux-battery-status &>/dev/null; then
+        local _bat_percent _bat_status
+        _bat_percent="$(termux-battery-status 2>/dev/null | grep -oE '"percentage":[0-9]+' | grep -oE '[0-9]+' || true)"
+        _bat_status="$(termux-battery-status 2>/dev/null | grep -oE '"status":"[A-Z]+"' | grep -oE '"[A-Z]+"$' | tr -d '"' || true)"
+        if [[ -n "$_bat_percent" ]]; then
+            if [[ -n "$_bat_status" ]]; then
+                battery="${_bat_percent}% (${_bat_status})"
+            else
+                battery="${_bat_percent}%"
+            fi
+        fi
+    fi
     if [[ -n "$battery" ]]; then
         INFO_PAIRS+=("Battery" "$battery")
     fi
@@ -1460,6 +1507,9 @@ collect_info() {
         init="s6"
     elif [[ -x /sbin/init ]]; then
         init="$(/sbin/init --version 2>/dev/null | head -1 | sed 's/ .*//' || echo "sysvinit")"
+    fi
+    if [[ -z "$init" && $_is_android -eq 1 ]]; then
+        init="Android init"
     fi
     [[ -n "$init" ]] && INFO_PAIRS+=("Init" "$init")
 
@@ -1580,6 +1630,16 @@ collect_info() {
     fi
     if [[ -z "$model" ]] && command -v sysctl &>/dev/null && [[ "$(uname -s 2>/dev/null || '')" == "Darwin" ]]; then
         model="$(sysctl -n hw.model 2>/dev/null || true)"
+    fi
+    if [[ -z "$model" ]] && command -v getprop &>/dev/null; then
+        local _brand _device
+        _brand="$(getprop ro.product.brand 2>/dev/null || true)"
+        _device="$(getprop ro.product.model 2>/dev/null || true)"
+        if [[ -n "$_brand" && -n "$_device" ]]; then
+            model="${_brand} ${_device}"
+        elif [[ -n "$_device" ]]; then
+            model="$_device"
+        fi
     fi
     [[ -n "$model" ]] && INFO_PAIRS+=("model" "$model")
 

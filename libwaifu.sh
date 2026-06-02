@@ -1194,7 +1194,19 @@ collect_info() {
 
     # ---- CPU ----
     cpu=""
-    if [[ -f /proc/cpuinfo ]]; then
+    if [[ $_is_android -eq 1 ]] && command -v getprop &>/dev/null; then
+        # Android: try SoC model first, then board platform + arch
+        cpu="$(getprop ro.soc.model 2>/dev/null || echo '')"
+        if [[ -z "$cpu" ]]; then
+            local _plat="$(getprop ro.board.platform 2>/dev/null || echo '')"
+            local _arch="$(uname -m 2>/dev/null || echo 'aarch64')"
+            if [[ -n "$_plat" ]]; then
+                cpu="${_arch} (${_plat})"
+            else
+                cpu="${_arch}"
+            fi
+        fi
+    elif [[ -f /proc/cpuinfo ]]; then
         cpu="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | sed 's/.*: //' || true)"
         if [[ -z "$cpu" ]]; then
             # ARM / Android: /proc/cpuinfo uses 'Hardware' instead of 'model name'
@@ -1218,7 +1230,10 @@ collect_info() {
         gpu="$(system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/ {print $2; exit}' || true)"
     fi
     if [[ -z "$gpu" && $_is_android -eq 1 ]] && command -v getprop &>/dev/null; then
-        gpu="$(getprop ro.hardware.egl 2>/dev/null || getprop ro.board.platform 2>/dev/null || true)"
+        # Android GPU: try SoC model (includes GPU), then EGL, then board platform
+        gpu="$(getprop ro.soc.model 2>/dev/null || echo '')"
+        [[ -z "$gpu" ]] && gpu="$(getprop ro.hardware.egl 2>/dev/null || echo '')"
+        [[ -z "$gpu" ]] && gpu="$(getprop ro.board.platform 2>/dev/null || echo '')"
         [[ "$gpu" == "swiftshader" ]] && gpu=""
     fi
     [[ -z "$gpu" ]] && gpu="unknown"
@@ -1260,7 +1275,24 @@ collect_info() {
     # ---- Disk ----
     disk=""
     if command -v df &>/dev/null; then
-        disk="$(df -h / 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
+        if [[ $_is_android -eq 1 ]]; then
+            # Android: /storage/emulated/0 is the real user-accessible storage
+            # / (root) in Termux is a small private data partition (~900MB)
+            if [[ -d /storage/emulated/0 ]]; then
+                disk="$(df -h /storage/emulated/0 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || true)"
+            fi
+            # Fallback: try /sdcard (symlink to /storage/emulated/0 on most devices)
+            if [[ -z "$disk" && -d /sdcard ]]; then
+                disk="$(df -h /sdcard 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || true)"
+            fi
+            # Last resort: show Termux partition with a label
+            if [[ -z "$disk" ]]; then
+                local _termux_disk="$(df -h / 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || true)"
+                [[ -n "$_termux_disk" ]] && disk="$_termux_disk (Termux data)"
+            fi
+        else
+            disk="$(df -h / 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
+        fi
     fi
     [[ -z "$disk" ]] && disk="unknown"
     INFO_PAIRS+=("Disk" "$disk")
@@ -1388,14 +1420,17 @@ collect_info() {
         battery="$(pmset -g batt 2>/dev/null | grep -oE '[0-9]+%' | head -1 || true)"
     fi
     if [[ -z "$battery" ]] && command -v termux-battery-status &>/dev/null; then
-        local _bat_percent _bat_status
-        _bat_percent="$(termux-battery-status 2>/dev/null | grep -oE '"percentage":[0-9]+' | grep -oE '[0-9]+' || true)"
-        _bat_status="$(termux-battery-status 2>/dev/null | grep -oE '"status":"[A-Z]+"' | grep -oE '"[A-Z]+"$' | tr -d '"' || true)"
-        if [[ -n "$_bat_percent" ]]; then
-            if [[ -n "$_bat_status" ]]; then
-                battery="${_bat_percent}% (${_bat_status})"
-            else
-                battery="${_bat_percent}%"
+        local _bat_json _bat_percent _bat_status
+        _bat_json="$(termux-battery-status 2>/dev/null || echo '')"
+        if [[ -n "$_bat_json" ]]; then
+            _bat_percent="$(printf '%s' "$_bat_json" | grep -oE '"percentage":[0-9]+' | grep -oE '[0-9]+' || true)"
+            _bat_status="$(printf '%s' "$_bat_json" | grep -oE '"status":"[A-Z]+"' | grep -oE '"[A-Z]+"$' | tr -d '"' || true)"
+            if [[ -n "$_bat_percent" ]]; then
+                if [[ -n "$_bat_status" ]]; then
+                    battery="${_bat_percent}% (${_bat_status})"
+                else
+                    battery="${_bat_percent}%"
+                fi
             fi
         fi
     fi

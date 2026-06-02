@@ -1139,12 +1139,13 @@ collect_info() {
     _pgrep_l_x() {
         local proc="$1"
         if command -v pgrep &>/dev/null; then
-            pgrep -l -x "$proc" 2>/dev/null || return 1
+            pgrep -l -x "$proc" 2>/dev/null
         elif [[ "$uname_s" == "Darwin" ]]; then
             ps -ax -o pid=,ucomm= 2>/dev/null | awk -v p="$proc" \
-                '$2 == p {print $1 " " $2; found=1} END {exit found?0:1}' || return 1
+                '$2 == p {print $1 " " $2; found=1} END {exit found?0:1}'
+        else
+            return 1
         fi
-        return 1
     }
     _detect_wm_de() {
         local wm=""

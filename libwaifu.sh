@@ -1306,7 +1306,7 @@ collect_info() {
     # ---- Local IP (first non-loopback IPv4) ----
     local local_ip=""
     if command -v ip &>/dev/null; then
-        local_ip="$(ip -4 addr show scope global 2>/dev/null | awk '/inet / {gsub(/\/[0-9]+/,"",\$2); print \$2; exit}' || true)"
+        local_ip="$(ip -4 addr show scope global 2>/dev/null | awk '/inet / {gsub(/\/[0-9]+/,"",$2); print $2; exit}' || true)"
     fi
     if [[ -z "$local_ip" ]] && command -v ifconfig &>/dev/null; then
         local_ip="$(ifconfig 2>/dev/null | grep -E 'inet ' | grep -v '127\.' | awk '{print $2}' | head -1 || true)"

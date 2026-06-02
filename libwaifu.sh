@@ -1307,7 +1307,7 @@ collect_info() {
     if [[ -z "$local_ip" ]] && command -v ipconfig &>/dev/null; then
         local_ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
     fi
-    # [[ -n "$local_ip" ]] && INFO_PAIRS+=("Local IP" "$local_ip")
+    [[ -n "$local_ip" ]] && INFO_PAIRS+=("Local IP" "$local_ip")
 
     # ---- Public IP ----
     local public_ip=""
@@ -1316,8 +1316,7 @@ collect_info() {
                      curl -sf --max-time 2 https://api.ipify.org 2>/dev/null || true)"
     fi
     if [[ -n "$public_ip" ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("Public IP" "$public_ip")
+        INFO_PAIRS+=("Public IP" "$public_ip")
     fi
 
     # ---- Battery ----
@@ -1345,14 +1344,13 @@ collect_info() {
         battery="$(pmset -g batt 2>/dev/null | grep -oE '[0-9]+%' | head -1 || true)"
     fi
     if [[ -n "$battery" ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("Battery" "$battery")
+        INFO_PAIRS+=("Battery" "$battery")
     fi
 
     # ---- Locale ----
     local locale_val=""
     locale_val="${LANG:-${LC_ALL:-${LC_MESSAGES:-}}}"
-    # [[ -n "$locale_val" ]] && INFO_PAIRS+=("Locale" "$locale_val")
+    [[ -n "$locale_val" ]] && INFO_PAIRS+=("Locale" "$locale_val")
 
     # ---- Terminal Font ----
     local term_font=""
@@ -1418,8 +1416,7 @@ collect_info() {
         [[ -z "$monitors" ]] && monitors=0
     fi
     if [[ "$monitors" -gt 0 ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("Monitor" "${monitors} display(s)")
+        INFO_PAIRS+=("Monitor" "${monitors} display(s)")
     fi
 
     # ---- DE (separate from WM for config compat) ----
@@ -1432,8 +1429,7 @@ collect_info() {
         uptime_unix="$(( $(date +%s 2>/dev/null || echo 0) - uptime_secs ))"
     fi
     if [[ "$uptime_unix" -gt 0 ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("Uptime Unix" "$uptime_unix")
+        INFO_PAIRS+=("Uptime Unix" "$uptime_unix")
     fi
 
     # ---- Song (playerctl) ----
@@ -1441,7 +1437,7 @@ collect_info() {
     if command -v playerctl &>/dev/null; then
         song="$(playerctl metadata --format '{{artist}} - {{title}}' 2>/dev/null || true)"
     fi
-    # [[ -n "$song" ]] && INFO_PAIRS+=("Song" "$song")
+    [[ -n "$song" ]] && INFO_PAIRS+=("Song" "$song")
 
     # ---- Init ----
     local init=""
@@ -1456,21 +1452,21 @@ collect_info() {
     elif [[ -x /sbin/init ]]; then
         init="$(/sbin/init --version 2>/dev/null | head -1 | sed 's/ .*//' || echo "sysvinit")"
     fi
-    # [[ -n "$init" ]] && INFO_PAIRS+=("Init" "$init")
+    [[ -n "$init" ]] && INFO_PAIRS+=("Init" "$init")
 
     # ---- Date/Time ----
     local date_now=""
     if command -v date &>/dev/null; then
         date_now="$(date '+%Y-%m-%d %H:%M' 2>/dev/null || true)"
     fi
-    # [[ -n "$date_now" ]] && INFO_PAIRS+=("Date" "$date_now")
+    [[ -n "$date_now" ]] && INFO_PAIRS+=("Date" "$date_now")
 
     # ---- Disk Total ----
     local disk_total=""
     if command -v df &>/dev/null; then
         disk_total="$(df -h / 2>/dev/null | awk 'NR==2 {print $2}')"
     fi
-    # [[ -n "$disk_total" ]] && INFO_PAIRS+=("Disk Total" "$disk_total")
+    [[ -n "$disk_total" ]] && INFO_PAIRS+=("Disk Total" "$disk_total")
 
     # ---- Config-friendly aliases (fastfetch-style type names) ----
     # These ADDITIONAL entries ensure fastfetch-style configs like
@@ -1486,38 +1482,136 @@ collect_info() {
         INFO_PAIRS+=("terminalfont" "$term_font")
     fi
     if [[ -n "$local_ip" ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("localip" "$local_ip")
+        INFO_PAIRS+=("localip" "$local_ip")
     fi
     # Public IP — opt-out via --no-public-ip flag
     if [[ -n "$public_ip" ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("publicip" "$public_ip")
+        INFO_PAIRS+=("publicip" "$public_ip")
     fi
     if [[ -n "$song" ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("song" "$song")
+        INFO_PAIRS+=("song" "$song")
     fi
     if [[ "$monitors" -gt 0 ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("monitor" "${monitors} display(s)")
+        INFO_PAIRS+=("monitor" "${monitors} display(s)")
     fi
     if [[ -n "$disk_total" ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("disk_total" "$disk_total")
+        INFO_PAIRS+=("disk_total" "$disk_total")
     fi
     if [[ -n "$uptime_unix" && "$uptime_unix" -gt 0 ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("uptime_unix" "$uptime_unix")
+        INFO_PAIRS+=("uptime_unix" "$uptime_unix")
     fi
     if [[ -n "$init" ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("init" "$init")
+        INFO_PAIRS+=("init" "$init")
     fi
     if [[ -n "$date_now" ]]; then
-        : # not shown by default
-        # INFO_PAIRS+=("date" "$date_now")
+        INFO_PAIRS+=("date" "$date_now")
     fi
+
+    # ---- Processes ----
+    local processes=0
+    if command -v ps &>/dev/null; then
+        if [[ "$(uname -s 2>/dev/null || echo '')" == "Darwin" ]]; then
+            processes="$(ps -eo pid= 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+        else
+            processes="$(ps -eo pid= --no-headers 2>/dev/null | wc -l | tr -d ' ' || \
+                        ps -eo pid= 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+        fi
+    fi
+    [[ "$processes" -gt 0 ]] && INFO_PAIRS+=("processes" "$processes")
+
+    # ---- CPU Temperature ----
+    local cpu_temp=""
+    if command -v sensors &>/dev/null; then
+        cpu_temp="$(sensors 2>/dev/null | grep -i 'Package id 0' | grep -oP '[0-9]+\.[0-9]+°C' | head -1 || \
+                    sensors 2>/dev/null | grep -i 'Tctl' | grep -oP '[0-9]+\.[0-9]+°C' | head -1 || \
+                    sensors 2>/dev/null | grep -i 'Core 0' | grep -oP '[0-9]+\.[0-9]+°C' | head -1 || true)"
+    fi
+    if [[ -z "$cpu_temp" && -d /sys/class/thermal ]]; then
+        local _thermal_zone
+        for _thermal_zone in /sys/class/thermal/thermal_zone*/temp; do
+            [[ -f "$_thermal_zone" ]] && cpu_temp="$(cat "$_thermal_zone" 2>/dev/null | head -1 | awk '{printf "%.0f°C", $1/1000}' || true)"
+            [[ -n "$cpu_temp" ]] && break
+        done
+    fi
+    [[ -n "$cpu_temp" ]] && INFO_PAIRS+=("cpu_temp" "$cpu_temp")
+
+    # ---- Virtualization ----
+    local virt=""
+    if command -v systemd-detect-virt &>/dev/null; then
+        virt="$(systemd-detect-virt 2>/dev/null || true)"
+    fi
+    if [[ -z "$virt" || "$virt" == "none" ]]; then
+        # Check via /proc/cpuinfo or /sys
+        if grep -qi 'hypervisor' /proc/cpuinfo 2>/dev/null; then
+            virt="vm"
+        fi
+        if [[ -z "$virt" ]]; then
+            # Check container
+            if grep -q 'docker' /proc/1/cgroup 2>/dev/null || [[ -f /.dockerenv ]]; then
+                virt="docker"
+            elif grep -q 'lxc' /proc/1/cgroup 2>/dev/null; then
+                virt="lxc"
+            fi
+        fi
+    fi
+    [[ -n "$virt" && "$virt" != "none" ]] && INFO_PAIRS+=("virt" "$virt")
+
+    # ---- Hardware Model ----
+    local model=""
+    if [[ -f /sys/devices/virtual/dmi/id/product_name ]]; then
+        model="$(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || true)"
+        local _sys_vendor=""
+        _sys_vendor="$(cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null || true)"
+        if [[ -n "$_sys_vendor" && -n "$model" && "$model" != "$_sys_vendor"* ]]; then
+            model="${_sys_vendor} ${model}"
+        fi
+    fi
+    if [[ -z "$model" ]] && command -v dmidecode &>/dev/null; then
+        model="$(dmidecode -s system-product-name 2>/dev/null || true)"
+    fi
+    if [[ -z "$model" ]] && command -v sysctl &>/dev/null && [[ "$(uname -s 2>/dev/null || '')" == "Darwin" ]]; then
+        model="$(sysctl -n hw.model 2>/dev/null || true)"
+    fi
+    [[ -n "$model" ]] && INFO_PAIRS+=("model" "$model")
+
+    # ---- Flatpak count ----
+    local flatpak_count=0
+    if command -v flatpak &>/dev/null; then
+        flatpak_count="$(flatpak list 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+    fi
+    [[ "$flatpak_count" -gt 0 ]] && INFO_PAIRS+=("flatpak" "$flatpak_count")
+
+    # ---- Container (Docker/Podman) ----
+    local containers=0
+    if command -v docker &>/dev/null; then
+        containers="$(docker ps -q 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+    fi
+    if [[ "$containers" -eq 0 ]] && command -v podman &>/dev/null; then
+        containers="$(podman ps -q 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+    fi
+    [[ "$containers" -gt 0 ]] && INFO_PAIRS+=("containers" "$containers")
+
+    # ---- CPU usage ----
+    local cpu_usage=""
+    if command -v top &>/dev/null; then
+        # Quick read from /proc/stat on Linux
+        if [[ -f /proc/stat ]]; then
+            local _cpu_idle _cpu_total _cpu_line
+            local _prev_idle _prev_total
+            _cpu_line=$(head -1 /proc/stat 2>/dev/null || true)
+            if [[ -n "$_cpu_line" ]]; then
+                # Sum all fields: user nice system idle iowait irq softirq steal guest guest_nice
+                _cpu_total=0
+                for _val in $_cpu_line; do [[ "$_val" =~ ^[0-9]+$ ]] && _cpu_total=$((_cpu_total + _val)); done 2>/dev/null || true
+                # Field 4 (idle) + field 5 (iowait)
+                _cpu_idle=$(echo "$_cpu_line" | awk '{print $5+$6}' 2>/dev/null || echo 0)
+                if [[ "$_cpu_total" -gt 0 ]]; then
+                    cpu_usage="$((100 * (_cpu_total - _cpu_idle) / _cpu_total))%"
+                fi
+            fi
+        fi
+    fi
+    [[ -n "$cpu_usage" ]] && INFO_PAIRS+=("cpu_usage" "$cpu_usage")
 
     # ---- Disk IO / Partition / Filesystem info ----
     # Not collecting with default — expensive on some systems
@@ -1594,6 +1688,13 @@ Available info types (type name -> shown as):
   cursor        Cursor theme
   monitor       Number of monitors
   uptime_unix   Boot timestamp (Unix epoch)
+  processes     Number of running processes
+  cpu_usage     CPU usage percentage
+  cpu_temp      CPU temperature
+  virt          Virtualization/container type
+  model         Hardware model name
+  flatpak       Installed Flatpak count
+  containers    Running Docker/Podman containers
 
 Flags:
   --config <path>   load config from custom file path

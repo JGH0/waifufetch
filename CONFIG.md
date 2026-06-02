@@ -166,6 +166,13 @@ Color code reference:
 | `init` | Init system | systemd |
 | `date` | Current date and time | 2026-06-01 19:21 |
 | `song` | Currently playing media | Song Title - Artist |
+| `processes` | Running process count | 287 |
+| `cpu_usage` | CPU usage percentage | 12% |
+| `cpu_temp` | CPU temperature | 52.0°C |
+| `virt` | Virtualization / container type | kvm, docker |
+| `model` | Hardware model name | Dell XPS 13 9310 |
+| `flatpak` | Installed Flatpak count | 8 |
+| `containers` | Running Docker/Podman containers | 2 |
 
 ## More Examples
 

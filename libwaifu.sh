@@ -1135,24 +1135,30 @@ collect_info() {
     INFO_PAIRS+=("Terminal" "$term")
 
     # ---- WM/DE ----
+    # Portable fallback for pgrep (missing on some macOS setups)
+    _pgrep_l_x() {
+        local proc="$1"
+        if command -v pgrep &>/dev/null; then
+            pgrep -l -x "$proc" 2>/dev/null || return 1
+        elif [[ "$uname_s" == "Darwin" ]]; then
+            ps -ax -o pid=,ucomm= 2>/dev/null | awk -v p="$proc" \
+                '$2 == p {print $1 " " $2; found=1} END {exit found?0:1}' || return 1
+        fi
+        return 1
+    }
+    _detect_wm_de() {
+        local wm=""
+        for w in gnome-shell kwin_x11 kwin_wayland sway hyprland i3 bspwm dwm openbox awesome herbstluftwm qtile xfce4-panel; do
+            wm="$(_pgrep_l_x "$w" | sed -n 's/^[0-9]* //p' || true)"
+            [[ -n "$wm" ]] && { printf '%s' "$wm"; return; }
+        done
+    }
     de="${XDG_CURRENT_DESKTOP:-${XDG_SESSION_DESKTOP:-${DESKTOP_SESSION:-}}}"
     if [[ -z "$de" ]]; then
         if command -v wmctrl &>/dev/null; then
             de="$(wmctrl -m 2>/dev/null | sed -n 's/.*Name: //p' || true)"
         fi
-        [[ -z "$de" ]] && de="$(pgrep -l -x gnome-shell | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x kwin_x11 | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x kwin_wayland | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x sway | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x hyprland | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x i3 | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x bspwm | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x dwm | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x openbox | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x awesome | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x herbstluftwm | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x qtile | sed -n 's/^[0-9]* //p' || \
-                                 pgrep -l -x xfce4-panel | sed -n 's/^[0-9]* //p' || true)"
+        [[ -z "$de" ]] && de="$(_detect_wm_de)"
     fi
     if [[ -z "$de" && "$uname_s" == "Darwin" ]]; then
         de="Aqua"
@@ -1299,10 +1305,10 @@ collect_info() {
     # ---- Local IP (first non-loopback IPv4) ----
     local local_ip=""
     if command -v ip &>/dev/null; then
-        local_ip="$(ip -4 addr show scope global 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1 || true)"
+        local_ip="$(ip -4 addr show scope global 2>/dev/null | awk '/inet / {gsub(/\/[0-9]+/,"",\$2); print \$2; exit}' || true)"
     fi
     if [[ -z "$local_ip" ]] && command -v ifconfig &>/dev/null; then
-        local_ip="$(ifconfig 2>/dev/null | grep -oP 'inet \K[\d.]+' | grep -v '^127\.' | head -1 || true)"
+        local_ip="$(ifconfig 2>/dev/null | grep -E 'inet ' | grep -v '127\.' | awk '{print $2}' | head -1 || true)"
     fi
     if [[ -z "$local_ip" ]] && command -v ipconfig &>/dev/null; then
         local_ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
@@ -1522,9 +1528,9 @@ collect_info() {
     # ---- CPU Temperature ----
     local cpu_temp=""
     if command -v sensors &>/dev/null; then
-        cpu_temp="$(sensors 2>/dev/null | grep -i 'Package id 0' | grep -oP '[0-9]+\.[0-9]+°C' | head -1 || \
-                    sensors 2>/dev/null | grep -i 'Tctl' | grep -oP '[0-9]+\.[0-9]+°C' | head -1 || \
-                    sensors 2>/dev/null | grep -i 'Core 0' | grep -oP '[0-9]+\.[0-9]+°C' | head -1 || true)"
+        cpu_temp="$(sensors 2>/dev/null | grep -i 'Package id 0' | grep -oE '[0-9]+\.[0-9]+°C' | head -1 || \
+                    sensors 2>/dev/null | grep -i 'Tctl' | grep -oE '[0-9]+\.[0-9]+°C' | head -1 || \
+                    sensors 2>/dev/null | grep -i 'Core 0' | grep -oE '[0-9]+\.[0-9]+°C' | head -1 || true)"
     fi
     if [[ -z "$cpu_temp" && -d /sys/class/thermal ]]; then
         local _thermal_zone

@@ -1018,9 +1018,9 @@ print_side_by_side_raw() {
             # Truncate info to fit within terminal width to avoid overflow wrap
             plain_info="$(printf '%s' "$info_line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g')"
             if [[ ${#plain_info} -gt $info_max_col ]]; then
-                info_line="${info_line:0:$((info_max_col))}"
-                # Ensure we don't end mid-ANSI-escape by stripping any partial escape
-                info_line="$(printf '%s' "$info_line" | sed \$'s/[^\e].*$//')"
+                local _vis="${plain_info:0:$((info_max_col))}"
+                local _pfx="$(printf '%s' "$info_line" | sed $'s/[^\e].*$//')"
+                info_line="${_pfx}${_vis}"
             fi
             printf '%s\033[%dG%s\n' "$art_line" "$info_col" "$info_line"
         elif [[ -n "$art_line" ]]; then
@@ -1028,8 +1028,9 @@ print_side_by_side_raw() {
         elif [[ -n "$info_line" ]]; then
             plain_info="$(printf '%s' "$info_line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g')"
             if [[ ${#plain_info} -gt $info_max_col ]]; then
-                info_line="${info_line:0:$((info_max_col))}"
-                info_line="$(printf '%s' "$info_line" | sed \$'s/[^\e].*$//')"
+                local _vis="${plain_info:0:$((info_max_col))}"
+                local _pfx="$(printf '%s' "$info_line" | sed $'s/[^\e].*$//')"
+                info_line="${_pfx}${_vis}"
             fi
             printf '\033[%dG%s\n' "$info_col" "$info_line"
         fi

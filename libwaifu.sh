@@ -987,26 +987,20 @@ print_side_by_side_raw() {
     eval "_art_len=\${#$_art_name[@]}"
     eval "_info_len=\${#$_info_name[@]}"
 
-    local info_col
-    if [[ -n "$_fixed_col" ]]; then
-        info_col="$_fixed_col"
-    else
-        local max_art_w=0
-        local line clean len
-        local i
-        for ((i=0; i<_art_len; i++)); do
-            eval "line=\${$_art_name[\$i]}"
-            # Strip ANSI codes and trailing whitespace for accurate width
-            clean="$(printf '%s' "$line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g; s/[[:space:]]*$//')"
-            len=${#clean}
-            [[ $len -gt $max_art_w ]] && max_art_w=$len
-        done
-        info_col=$((max_art_w + 2))
-    fi
+    local max_art_w=0
+    local line clean len
+    local i
+    for ((i=0; i<_art_len; i++)); do
+        eval "line=\${$_art_name[\$i]}"
+        # Strip ANSI codes and trailing whitespace for accurate width
+        clean="$(printf '%s' "$line" | sed $'s/\e\[[0-9;?]*[a-zA-Z]//g; s/[[:space:]]*$//')"
+        len=${#clean}
+        [[ $len -gt $max_art_w ]] && max_art_w=$len
+    done
+    local info_col=$((max_art_w + 2))
     local info_max_col=$(( width - info_col ))
     [[ $info_max_col -lt 5 ]] && info_max_col=5
 
-    local max=
     local max=$(( _art_len > _info_len ? _art_len : _info_len ))
     local l art_line info_line plain_info
 

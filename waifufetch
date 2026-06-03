@@ -682,7 +682,7 @@ main() {
                         WAIFU_INFO_COL=$((_iw * 2 + 2))
                     fi
 
-                    print_side_by_side_raw art_lines INFO_LINES "$WAIFU_INFO_COL"
+                    print_side_by_side_raw art_lines INFO_LINES 
                     [[ $NO_LINK -eq 0 ]] && echo "$image_url"
                 else
                     echo ""
@@ -697,7 +697,7 @@ main() {
             _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" "$DISPLAYER" "$max_info_width" || true)
 
             if [[ ${#art_lines[@]} -gt 0 ]]; then
-                print_side_by_side_raw art_lines INFO_LINES "$WAIFU_INFO_COL"
+                print_side_by_side_raw art_lines INFO_LINES 
                 [[ $NO_LINK -eq 0 ]] && echo "$image_url"
             else
                 echo "  Waifu image unavailable (install chafa, img2txt, or jp2a)" >&2

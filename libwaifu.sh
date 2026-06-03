@@ -1017,20 +1017,48 @@ print_side_by_side_raw() {
         if [[ -n "$art_line" && -n "$info_line" ]]; then
             # Truncate info to fit within terminal width to avoid overflow wrap
             plain_info="$(printf '%s' "$info_line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g')"
-            if [[ ${#plain_info} -gt $info_max_col ]]; then
-                local _vis="${plain_info:0:$((info_max_col))}"
-                local _pfx="$(printf '%s' "$info_line" | sed $'s/[^\e].*$//')"
-                info_line="${_pfx}${_vis}"
+                        if [[ ${#plain_info} -gt $info_max_col ]]; then
+                local _out="" _count=0 _in_esc=0 _ch
+                for ((_i=0; _i<${#info_line}; _i++)); do
+                    _ch="${info_line:$_i:1}"
+                    if [[ $_in_esc -eq 1 ]]; then
+                        _out+="$_ch"
+                        [[ "$_ch" == [a-zA-Z] ]] && _in_esc=0
+                    elif [[ "$_ch" == $'\e' ]]; then
+                        _in_esc=1
+                        _out+="$_ch"
+                    else
+                        if [[ $_count -lt $info_max_col ]]; then
+                            _out+="$_ch"
+                            ((_count++))
+                        fi
+                    fi
+                done
+                info_line="$_out"
             fi
             printf '%s\033[%dG%s\n' "$art_line" "$info_col" "$info_line"
         elif [[ -n "$art_line" ]]; then
             printf '%s\n' "$art_line"
         elif [[ -n "$info_line" ]]; then
             plain_info="$(printf '%s' "$info_line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g')"
-            if [[ ${#plain_info} -gt $info_max_col ]]; then
-                local _vis="${plain_info:0:$((info_max_col))}"
-                local _pfx="$(printf '%s' "$info_line" | sed $'s/[^\e].*$//')"
-                info_line="${_pfx}${_vis}"
+                        if [[ ${#plain_info} -gt $info_max_col ]]; then
+                local _out="" _count=0 _in_esc=0 _ch
+                for ((_i=0; _i<${#info_line}; _i++)); do
+                    _ch="${info_line:$_i:1}"
+                    if [[ $_in_esc -eq 1 ]]; then
+                        _out+="$_ch"
+                        [[ "$_ch" == [a-zA-Z] ]] && _in_esc=0
+                    elif [[ "$_ch" == $'\e' ]]; then
+                        _in_esc=1
+                        _out+="$_ch"
+                    else
+                        if [[ $_count -lt $info_max_col ]]; then
+                            _out+="$_ch"
+                            ((_count++))
+                        fi
+                    fi
+                done
+                info_line="$_out"
             fi
             printf '\033[%dG%s\n' "$info_col" "$info_line"
         fi

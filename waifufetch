@@ -5,7 +5,7 @@
 # Repository: https://github.com/JGH0/waifufetch
 # License: MIT
 
-set -euo pipefail
+set -euo pipefail 2>/dev/null || set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/libwaifu.sh"
 
@@ -422,8 +422,9 @@ main() {
         local width="${COLUMNS:-80}"
         if command -v tput &>/dev/null; then
             local tput_w
-            tput_w="$(tput cols 2>/dev/null || echo 80)"
-            [[ "$tput_w" -gt 0 ]] && width="$tput_w"
+            local tput_w tput_rc
+            tput_w="$(tput cols 2>/dev/null)" && tput_rc=$? || tput_rc=$?
+            [[ $tput_rc -eq 0 && "$tput_w" -gt 0 ]] && width="$tput_w"
         fi
 
         # Check if requested displayer is available
@@ -473,6 +474,17 @@ main() {
 
         # icat for waifufetch uses text-art side-by-side (native icat
         # is meant for the standalone \`waifu\` command, not for fetch display)
+        # Auto-detect displayer when none explicitly set
+        if [[ -z "$DISPLAYER" ]]; then
+            if command -v chafa &>/dev/null; then
+                DISPLAYER="chafa"
+            elif command -v img2txt &>/dev/null; then
+                DISPLAYER="img2txt"
+            elif command -v jp2a &>/dev/null; then
+                DISPLAYER="jp2a"
+            fi
+        fi
+
         if [[ "$DISPLAYER" == "icat" ]]; then
             DISPLAYER=""
         fi
@@ -490,6 +502,14 @@ main() {
                     ffmpeg -y -i "$tmpfile" -vframes 1 "$static_file" 2>/dev/null && tmpfile="$static_file"
                 fi
             fi
+        fi
+
+        # Pre-compute info column position for the given displayer
+        local WAIFU_INFO_COL=""
+        if [[ "$DISPLAYER" == "chafa" ]]; then
+            local _iw=$((width / 3 - 1))
+            [[ $_iw -lt 8 ]] && _iw=8
+            WAIFU_INFO_COL=$((_iw * 2 + 2))
         fi
 
         # ---- Logo padding top ----
@@ -524,7 +544,11 @@ main() {
                 local gif_h=$((gif_w * 2 / 3))
                 # Match info line count, cap at terminal height
                 local term_height="${LINES:-24}"
-                command -v tput &>/dev/null && term_height="$(tput lines 2>/dev/null || echo 24)"
+                if command -v tput &>/dev/null; then
+                local _th _th_rc
+                _th="$(tput lines 2>/dev/null)" && _th_rc=$? || _th_rc=$?
+                [[ $_th_rc -eq 0 && "$_th" -gt 0 ]] && term_height="$_th"
+            fi
                 local height_cap=$((term_height - 3))
                 [[ $INFO_LINE_COUNT -gt $gif_h ]] && gif_h=$INFO_LINE_COUNT
                 [[ $gif_h -gt $height_cap ]] && gif_h=$height_cap
@@ -553,7 +577,7 @@ main() {
                     frame_art+=("${lines[@]}")
                     if [[ $idx -eq 0 ]]; then
                         for line in "${lines[@]}"; do
-                            local clean=$(printf '%s' "$line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/[[:space:]]*$//')
+                            local clean=$(printf '%s' "$line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g; s/[[:space:]]*$//')
                             local llen=${#clean}
                             [[ $llen -gt $art_width ]] && art_width=$llen
                         done
@@ -651,7 +675,14 @@ main() {
                 # Can't animate -- show static side-by-side with INFO_LINES
                 _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" "$DISPLAYER" "$max_info_width" || true)
                 if [[ ${#art_lines[@]} -gt 0 ]]; then
-                    print_side_by_side_raw art_lines INFO_LINES
+                    # Compute info column: chafa block chars are double-width
+                    if [[ "$DISPLAYER" == "chafa" ]] && [[ -n "${DISPLAYER}" ]]; then
+                        local _iw=$((width / 3 - 1))
+                        [[ $_iw -lt 8 ]] && _iw=8
+                        WAIFU_INFO_COL=$((_iw * 2 + 2))
+                    fi
+
+                    print_side_by_side_raw art_lines INFO_LINES "$WAIFU_INFO_COL"
                     [[ $NO_LINK -eq 0 ]] && echo "$image_url"
                 else
                     echo ""
@@ -666,7 +697,7 @@ main() {
             _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" "$DISPLAYER" "$max_info_width" || true)
 
             if [[ ${#art_lines[@]} -gt 0 ]]; then
-                print_side_by_side_raw art_lines INFO_LINES
+                print_side_by_side_raw art_lines INFO_LINES "$WAIFU_INFO_COL"
                 [[ $NO_LINK -eq 0 ]] && echo "$image_url"
             else
                 echo "  Waifu image unavailable (install chafa, img2txt, or jp2a)" >&2

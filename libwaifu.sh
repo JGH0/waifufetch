@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # libwaifu.sh - Shared library for waifu and waifufetch
 # Sourced by both scripts
-set -euo pipefail
+set -euo pipefail 2>/dev/null || set -eu
 
 # ============================================================
 # Version
@@ -837,7 +837,11 @@ image_to_text() {
         [[ $img_height -lt $max_height ]] && img_height=$max_height
         # Don't exceed 2x info height unless terminal can't fit
         local term_height="${LINES:-24}"
-        command -v tput &>/dev/null && term_height="$(tput lines 2>/dev/null || echo 24)"
+        if command -v tput &>/dev/null; then
+                local _th _th_rc
+                _th="$(tput lines 2>/dev/null)" && _th_rc=$? || _th_rc=$?
+                [[ $_th_rc -eq 0 && "$_th" -gt 0 ]] && term_height="$_th"
+            fi
         local cap=$((term_height - 3))  # leave room for prompt
         [[ $img_height -gt $cap ]] && img_height=$cap
         [[ $img_height -lt 5 ]] && img_height=5
@@ -929,7 +933,7 @@ print_side_by_side() {
     for ((i=0; i<_art_len; i++)); do
         eval "line=\${$_art_name[\$i]}"
         # Strip ANSI codes and trailing whitespace
-        clean="$(printf '%s' "$line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/[[:space:]]*$//')"
+        clean="$(printf '%s' "$line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g; s/[[:space:]]*$//')"
         len=${#clean}
         [[ $len -gt $max_art_w ]] && max_art_w=$len
     done
@@ -976,28 +980,33 @@ print_side_by_side() {
 # Args: $1=art_array_name $2=info_array_name (pre-rendered lines)
 print_side_by_side_raw() {
     local _art_name="$1" _info_name="$2"
+    local _fixed_col="${3:-}"
     local width="${COLUMNS:-80}"
 
     local _art_len _info_len
     eval "_art_len=\${#$_art_name[@]}"
     eval "_info_len=\${#$_info_name[@]}"
 
-    local max_art_w=0
-    local line clean len
-    local i
-    for ((i=0; i<_art_len; i++)); do
-        eval "line=\${$_art_name[\$i]}"
-        # Strip ANSI codes and trailing whitespace for accurate width
-        clean="$(printf '%s' "$line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/[[:space:]]*$//')"
-        len=${#clean}
-        [[ $len -gt $max_art_w ]] && max_art_w=$len
-    done
-
-    local info_col=$((max_art_w + 2))
-    # Calculate how many columns available for info text
+    local info_col
+    if [[ -n "$_fixed_col" ]]; then
+        info_col="$_fixed_col"
+    else
+        local max_art_w=0
+        local line clean len
+        local i
+        for ((i=0; i<_art_len; i++)); do
+            eval "line=\${$_art_name[\$i]}"
+            # Strip ANSI codes and trailing whitespace for accurate width
+            clean="$(printf '%s' "$line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g; s/[[:space:]]*$//')"
+            len=${#clean}
+            [[ $len -gt $max_art_w ]] && max_art_w=$len
+        done
+        info_col=$((max_art_w + 2))
+    fi
     local info_max_col=$(( width - info_col ))
     [[ $info_max_col -lt 5 ]] && info_max_col=5
 
+    local max=
     local max=$(( _art_len > _info_len ? _art_len : _info_len ))
     local l art_line info_line plain_info
 
@@ -1013,20 +1022,20 @@ print_side_by_side_raw() {
 
         if [[ -n "$art_line" && -n "$info_line" ]]; then
             # Truncate info to fit within terminal width to avoid overflow wrap
-            plain_info="$(printf '%s' "$info_line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')"
+            plain_info="$(printf '%s' "$info_line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g')"
             if [[ ${#plain_info} -gt $info_max_col ]]; then
                 info_line="${info_line:0:$((info_max_col))}"
                 # Ensure we don't end mid-ANSI-escape by stripping any partial escape
-                info_line="$(printf '%s' "$info_line" | sed 's/\x1b\[[^a-zA-Z]*$//')"
+                info_line="$(printf '%s' "$info_line" | sed \$'s/[^\e].*$//')"
             fi
             printf '%s\033[%dG%s\n' "$art_line" "$info_col" "$info_line"
         elif [[ -n "$art_line" ]]; then
             printf '%s\n' "$art_line"
         elif [[ -n "$info_line" ]]; then
-            plain_info="$(printf '%s' "$info_line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')"
+            plain_info="$(printf '%s' "$info_line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g')"
             if [[ ${#plain_info} -gt $info_max_col ]]; then
                 info_line="${info_line:0:$((info_max_col))}"
-                info_line="$(printf '%s' "$info_line" | sed 's/\x1b\[[^a-zA-Z]*$//')"
+                info_line="$(printf '%s' "$info_line" | sed \$'s/[^\e].*$//')"
             fi
             printf '\033[%dG%s\n' "$info_col" "$info_line"
         fi

@@ -314,6 +314,14 @@ main() {
         echo "[debug] category:     $CATEGORY" >&2
         echo "[debug] default_sfw:  $DEFAULT_SFW" >&2
         echo "[debug] displayer:    ${DISPLAYER:-auto}" >&2
+        echo "[debug] bash:         $(bash --version 2>/dev/null | head -1)" >&2
+        echo "[debug] kernel:       $(uname -srm 2>/dev/null || echo 'unknown')" >&2
+        echo "[debug] columns:      $(tput cols 2>/dev/null || echo ${COLUMNS:-80})" >&2
+        echo "[debug] chafa:        $(command -v chafa && chafa --version 2>/dev/null | head -1 || echo 'not installed')" >&2
+        echo "[debug] jq:           $(command -v jq && jq --version 2>/dev/null || echo 'not installed')" >&2
+        echo "[debug] img2txt:      $(command -v img2txt 2>/dev/null || echo 'not installed')" >&2
+        echo "[debug] jp2a:         $(command -v jp2a 2>/dev/null || echo 'not installed')" >&2
+        echo "[debug] config:        ${CONFIG_PATH:-${WAIFU_JSON_CONFIG:-default}}" >&2
     fi
 
     local HAS_CONFIG=0

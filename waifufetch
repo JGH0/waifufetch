@@ -624,7 +624,7 @@ main() {
                 local keep_going=true
                 while $keep_going; do
                     for ((idx=0; idx<frame_count; idx++)); do
-                        if read -t "$sleep_sec" -N 1 -s; then
+                        if read -t "$sleep_sec" -N 1 -s 2>/dev/null; then
                             keep_going=false
                             break
                         fi

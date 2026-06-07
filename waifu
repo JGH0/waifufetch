@@ -6,7 +6,7 @@
 # Repository: https://github.com/JGH0/waifufetch
 # License: MIT
 
-set -euo pipefail
+set -euo pipefail 2>/dev/null || set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/libwaifu.sh"
 

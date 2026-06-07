@@ -553,10 +553,10 @@ main() {
                 # Match info line count, cap at terminal height
                 local term_height="${LINES:-24}"
                 if command -v tput &>/dev/null; then
-                local _th _th_rc
-                _th="$(tput lines 2>/dev/null)" && _th_rc=$? || _th_rc=$?
-                [[ $_th_rc -eq 0 && "$_th" -gt 0 ]] && term_height="$_th"
-            fi
+                    local _th _th_rc
+                    _th="$(tput lines 2>/dev/null)" && _th_rc=$? || _th_rc=$?
+                    [[ $_th_rc -eq 0 && "$_th" -gt 0 ]] && term_height="$_th"
+                fi
                 local height_cap=$((term_height - 3))
                 [[ $INFO_LINE_COUNT -gt $gif_h ]] && gif_h=$INFO_LINE_COUNT
                 [[ $gif_h -gt $height_cap ]] && gif_h=$height_cap
@@ -603,6 +603,8 @@ main() {
                     raw=$(identify -format "%T" "${frames[0]}" 2>/dev/null || echo "5")
                     [[ "$raw" =~ ^[0-9]+$ && "$raw" -gt 0 ]] && frame_delay="$raw"
                 fi
+                # bash 3.2 (macOS): read -t doesn't support fractional seconds
+                # Use integer seconds where possible, chunk smaller delays into multiple reads
                 local sleep_sec
                 if ((frame_delay < 10)); then
                     sleep_sec="0.0${frame_delay}"
@@ -612,6 +614,13 @@ main() {
                     local int_part=$((frame_delay / 100))
                     local frac_part=$((frame_delay % 100))
                     printf -v sleep_sec "%d.%02d" "$int_part" "$frac_part"
+                fi
+                # On bash 3.2, read -t rejects fractional seconds; fall back to integer floor
+                if ! read -t "$sleep_sec" -N 0 2>/dev/null; then
+                    # bash 3.2 fallback: integer seconds only
+                    local sleep_int=$((frame_delay / 100))
+                    [[ $sleep_int -lt 1 ]] && sleep_int=1
+                    printf -v sleep_sec "%d" "$sleep_int"
                 fi
 
                 # Print blank lines for animation area

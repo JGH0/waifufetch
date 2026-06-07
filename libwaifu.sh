@@ -838,10 +838,10 @@ image_to_text() {
         # Don't exceed 2x info height unless terminal can't fit
         local term_height="${LINES:-24}"
         if command -v tput &>/dev/null; then
-                local _th _th_rc
-                _th="$(tput lines 2>/dev/null)" && _th_rc=$? || _th_rc=$?
-                [[ $_th_rc -eq 0 && "$_th" -gt 0 ]] && term_height="$_th"
-            fi
+            local _th _th_rc
+            _th="$(tput lines 2>/dev/null)" && _th_rc=$? || _th_rc=$?
+            [[ $_th_rc -eq 0 && "$_th" -gt 0 ]] && term_height="$_th"
+        fi
         local cap=$((term_height - 3))  # leave room for prompt
         [[ $img_height -gt $cap ]] && img_height=$cap
         [[ $img_height -lt 5 ]] && img_height=5
@@ -1246,10 +1246,45 @@ collect_info() {
         fi
     fi
     if [[ -z "$cpu" ]] && command -v sysctl &>/dev/null; then
-        cpu="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || \
-               sysctl -n hw.model 2>/dev/null || true)"
+        # macOS/Darwin: try machdep.cpu.brand_string first (Intel/Apple Silicon)
+        cpu="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
+        if [[ -z "$cpu" && "$uname_s" == "Darwin" ]] && command -v hostinfo &>/dev/null; then
+            # PowerPC Macs: machdep.cpu.brand_string doesn't exist, use hostinfo
+            cpu="$(hostinfo 2>/dev/null | grep 'Processor type' | sed 's/Processor type: //' || true)"
+            if [[ -z "$cpu" ]]; then
+                # Fallback: cpu type sysctl (numeric, map where possible)
+                local _cpu_type="$(sysctl -n hw.cputype 2>/dev/null || echo '')"
+                local _cpu_sub="$(sysctl -n hw.cpusubtype 2>/dev/null || echo '')"
+                if [[ -n "$_cpu_type" && -n "$_cpu_sub" ]]; then
+                    case "$_cpu_type/$_cpu_sub" in
+                        7/6)  cpu="Intel Core (Yonah)" ;;
+                        7/7)  cpu="Intel Core 2 (Merom)" ;;
+                        7/8)  cpu="Intel Core i (Penryn)" ;;
+                        7/10) cpu="Intel Core i (Nehalem)" ;;
+                        7/11) cpu="Intel Core i (Westmere)" ;;
+                        7/12) cpu="Intel Core i (Sandy Bridge)" ;;
+                        7/13) cpu="Intel Core i (Ivy Bridge)" ;;
+                        7/14) cpu="Intel Core i (Haswell)" ;;
+                        7/15) cpu="Intel Core i (Broadwell)" ;;
+                        7/16) cpu="Intel Core i (Skylake)" ;;
+                        7/17) cpu="Intel Core i (Kaby Lake)" ;;
+                        7/18) cpu="Intel Core i (Coffee Lake)" ;;
+                        7/19) cpu="Intel Core i (Ice Lake)" ;;
+                        7/20) cpu="Intel Core i (Tiger Lake)" ;;
+                        7/21) cpu="Intel Core i (Alder Lake)" ;;
+                        12/1) cpu="ARM64 (Apple Silicon)" ;;
+                        18/10) cpu="PowerPC G4 (7400)" ;;
+                        18/11) cpu="PowerPC G4 (7450)" ;;
+                        18/100) cpu="PowerPC G5 (970)" ;;
+                        *)    cpu="cputype $_cpu_type / cpusubtype $_cpu_sub" ;;
+                    esac
+                fi
+            fi
+        fi
+        # Still empty? Try hw.model (hardware model, not ideal)
+        [[ -z "$cpu" ]] && cpu="$(sysctl -n hw.model 2>/dev/null || true)"
     fi
-    [[ -z "$cpu" ]] && cpu="$uname_s $uname_r"
+    [[ -z "$cpu" ]] && cpu="$(uname -p 2>/dev/null || echo 'unknown')"
     cpu="$(printf '%s' "$cpu" | sed 's/(R)//g; s/(TM)//g; s/ CPU @ [0-9.]*GHz//g; s/  */ /g' | xargs)"
     INFO_PAIRS+=("CPU" "$cpu")
 
@@ -1636,12 +1671,13 @@ collect_info() {
     # ---- Processes ----
     local processes=0
     if command -v ps &>/dev/null; then
-        if [[ "$(uname -s 2>/dev/null || echo '')" == "Darwin" ]]; then
-            processes="$(ps -eo pid= 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+        if [[ "$uname_s" == "Darwin" ]]; then
+            processes="$(ps -eo pid= 2>/dev/null | wc -l | tr -d ' ')"
         else
-            processes="$(ps -eo pid= --no-headers 2>/dev/null | wc -l | tr -d ' ' || \
-                        ps -eo pid= 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+            processes="$(ps -eo pid= --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+            [[ -z "$processes" ]] && processes="$(ps -eo pid= 2>/dev/null | wc -l | tr -d ' ')"
         fi
+        [[ -z "$processes" ]] && processes=0
     fi
     [[ "$processes" -gt 0 ]] && INFO_PAIRS+=("processes" "$processes")
 
@@ -1713,17 +1749,20 @@ collect_info() {
     # ---- Flatpak count ----
     local flatpak_count=0
     if command -v flatpak &>/dev/null; then
-        flatpak_count="$(flatpak list 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+        flatpak_count="$(flatpak list 2>/dev/null | wc -l | tr -d ' ')"
+        [[ -z "$flatpak_count" ]] && flatpak_count=0
     fi
     [[ "$flatpak_count" -gt 0 ]] && INFO_PAIRS+=("flatpak" "$flatpak_count")
 
     # ---- Container (Docker/Podman) ----
     local containers=0
     if command -v docker &>/dev/null; then
-        containers="$(docker ps -q 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+        containers="$(docker ps -q 2>/dev/null | wc -l | tr -d ' ')"
+        [[ -z "$containers" ]] && containers=0
     fi
     if [[ "$containers" -eq 0 ]] && command -v podman &>/dev/null; then
-        containers="$(podman ps -q 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+        containers="$(podman ps -q 2>/dev/null | wc -l | tr -d ' ')"
+        [[ -z "$containers" ]] && containers=0
     fi
     [[ "$containers" -gt 0 ]] && INFO_PAIRS+=("containers" "$containers")
 

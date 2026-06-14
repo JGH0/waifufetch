@@ -65,7 +65,7 @@ if [[ -f "$WAIFU_DISPLAYER_FILE" ]]; then
     read -r DISPLAYER_VAL < "$WAIFU_DISPLAYER_FILE" || true
     DISPLAYER_VAL="$(printf '%s' "$DISPLAYER_VAL" | xargs)"
     case "$DISPLAYER_VAL" in
-        icat|chafa|img2txt|jp2a) DEFAULT_DISPLAYER="$DISPLAYER_VAL" ;;
+        icat|chafa|img2txt|jp2a|sixel) DEFAULT_DISPLAYER="$DISPLAYER_VAL" ;;
     esac
 fi
 
@@ -305,6 +305,10 @@ render_info_lines() {
             local ansi_line=""
             local plain_line=""
             if [[ -n "$key" ]]; then
+                # Truncate long values to prevent line wrapping
+                if [[ ${#val} -gt 53 ]]; then
+                    val="${val:0:50}..."
+                fi
                 if [[ -n "$color_val" ]]; then
                     ansi_line="$(printf '\033[%sm' "$color_val")${key}${reset}${CONFIG_SEPARATOR}${val}"
                 else
@@ -328,6 +332,10 @@ render_info_lines() {
         while [[ $i -lt $total ]]; do
             key="${INFO_PAIRS[$i]}"
             val="${INFO_PAIRS[$((i+1))]:-}"
+            # Truncate long values to prevent line wrapping
+            if [[ ${#val} -gt 53 ]]; then
+                val="${val:0:50}..."
+            fi
             local ansi="${key_color}${key}:${reset} ${val}"
             local plain="${key}: ${val}"
             INFO_LINES+=("$ansi")
@@ -392,6 +400,22 @@ is_gif_file() {
     magic=$(dd if="$f" bs=1 count=3 2>/dev/null)
     [[ "$magic" == "GIF" ]] && return 0
     return 1
+}
+
+# ============================================================
+# get_img_pixel_size - returns "W H" in pixels for an image file
+# Tries identify, sips, ffprobe. Returns empty on failure.
+# ============================================================
+get_img_pixel_size() {
+    local file="$1" dim='' w h
+    if command -v identify &>/dev/null; then
+        dim="$(identify -format '%w %h' "$file" 2>/dev/null)"
+    elif command -v sips &>/dev/null; then
+        dim="$(sips -g pixelWidth -g pixelHeight "$file" 2>/dev/null | awk '/pixelWidth/ {w=$2} /pixelHeight/ {h=$2} END {print w, h}')"
+    elif command -v ffprobe &>/dev/null; then
+        dim="$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null | paste -d' ' - -)"
+    fi
+    printf '%s' "$dim"
 }
 
 API_SOURCE="$DEFAULT_API"
@@ -745,6 +769,12 @@ display_image() {
                     jp2a --width="$width" "$file" 2>/dev/null && return 0
                 fi
                 ;;
+            sixel)
+                if command -v chafa &>/dev/null; then
+                    [[ $DEBUG -eq 1 ]] && echo "[display] chafa (sixel mode)" >&2
+                    chafa "$file" 2>/dev/null && return 0
+                fi
+                ;;
         esac
         return 1
     fi
@@ -877,6 +907,19 @@ image_to_text() {
                     fi
                 fi
                 ;;
+            sixel)
+                # sixel mode: use chafa blocks for text rendering (side-by-side),
+                # since sixel native rendering doesn't fit in text columns.
+                # For actual native display, see display_image() or waifufetch
+                # main flow which handles sixel natively.
+                if command -v chafa &>/dev/null; then
+                    _readlines lines < <(chafa --format=symbols --symbols=block --relative=off --size="${img_width}x${img_height}" "$file" 2>/dev/null || true)
+                    if [[ ${#lines[@]} -gt 0 ]]; then
+                        printf '%s\n' "${lines[@]}"
+                        return 0
+                    fi
+                fi
+                ;;
             icat)
                 # icat does not output text lines -- handled separately in main()
                 return 1
@@ -980,7 +1023,6 @@ print_side_by_side() {
 # Args: $1=art_array_name $2=info_array_name (pre-rendered lines)
 print_side_by_side_raw() {
     local _art_name="$1" _info_name="$2"
-    local _fixed_col="${3:-}"
     local width="${COLUMNS:-80}"
 
     local _art_len _info_len
@@ -1594,6 +1636,10 @@ collect_info() {
     local song=""
     if command -v playerctl &>/dev/null; then
         song="$(playerctl metadata --format '{{artist}} - {{title}}' 2>/dev/null || true)"
+        # Truncate long song titles to prevent line wrap in animation
+        if [[ ${#song} -gt 50 ]]; then
+            song="${song:0:47}..."
+        fi
     fi
     [[ -n "$song" ]] && INFO_PAIRS+=("Song" "$song")
 
@@ -2032,7 +2078,7 @@ Usage: $prog [displayer] [category|rating] [tag] [--noLink] [--debug]
   $prog chafa explicit neko          - force chafa with explicit + tag
 
   $prog --setDefaultDisplayer <d>    - set default image displayer
-                                       Valid: icat, chafa, img2txt, jp2a
+                                       Valid: icat, chafa, img2txt, jp2a, sixel
                                        (empty value "" to clear / auto-detect)
   $prog --setDefaultSFW <r>          - set default SFW rating
                                        Valid: safe, suggestive, borderline
@@ -2063,11 +2109,12 @@ Image sources: Waifu.im, Nekos API, Nekos.best + Danbooru (fallback)
   nekos.best nekos.best only
   danbooru   Danbooru only (JSON API) - supports femboy, trap, and more
 
-Displayers: icat, chafa, img2txt, jp2a
+Displayers: icat, chafa, img2txt, jp2a, sixel
   icat     native image display (kitty terminal)
   chafa    colored text-art via chafa library
   img2txt  colored ASCII art (caca-utils)
   jp2a     black & white ASCII art
+  sixel    native terminal image via chafa (sixel/kitty/iterm2)
   (default: auto-detect)
 
 Tags:    waifu, neko, kitsune, husbando, maid, uniform, selfies
@@ -2090,7 +2137,7 @@ Default SFW rating: $DEFAULT_SFW
   Reset with: $prog --setDefaultSFW ""
 
 Default displayer: ${DEFAULT_DISPLAYER:-auto}
-  Set with: $prog --setDefaultDisplayer <icat|chafa|img2txt|jp2a>
+  Set with: $prog --setDefaultDisplayer <icat|chafa|img2txt|jp2a|sixel>
   Clear with: $prog --setDefaultDisplayer ""
 
 Default API: ${DEFAULT_API:-auto}
@@ -2133,7 +2180,7 @@ Usage: $prog [displayer] [category|rating] [tag] [--debug]
                                        (empty value "" to reset to default)
 
   $prog --setDefaultDisplayer <d>    - set default image displayer
-                                       Valid: icat, chafa, img2txt, jp2a
+                                       Valid: icat, chafa, img2txt, jp2a, sixel
                                        (empty value "" to clear / auto-detect)
   $prog --setDefaultAPI <source>     - set default API source
                                        Valid: auto, waifu.im, nekosapi,
@@ -2161,11 +2208,12 @@ Image sources: Waifu.im, Nekos API, Nekos.best + Danbooru (fallback)
   nekos.best nekos.best only
   danbooru   Danbooru only (JSON API) - supports femboy, trap, and more
 
-Displayers: icat, chafa, img2txt, jp2a
+Displayers: icat, chafa, img2txt, jp2a, sixel
   icat     native image display (kitty terminal)
   chafa    colored text-art via chafa library
   img2txt  colored ASCII art (caca-utils)
   jp2a     black & white ASCII art
+  sixel    native terminal image via chafa (sixel/kitty/iterm2)
   (default: auto-detect)
 
 Tags:    waifu, neko, kitsune, husbando, maid, uniform, selfies

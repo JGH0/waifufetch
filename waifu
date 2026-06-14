@@ -122,13 +122,13 @@ main() {
     if [[ "${1:-}" == "--setDefaultDisplayer" ]]; then
         if [[ $# -lt 2 ]]; then
             echo "Usage: waifu --setDefaultDisplayer <displayer>"
-            echo "Valid: icat, chafa, img2txt, jp2a"
+            echo "Valid: icat, chafa, img2txt, jp2a, sixel"
             echo "Run with empty value to clear: --setDefaultDisplayer \"\""
             exit 1
         fi
         local NEW_DISP="$2"
         case "$NEW_DISP" in
-            icat|chafa|img2txt|jp2a)
+            icat|chafa|img2txt|jp2a|sixel)
                 mkdir -p "$WAIFU_CONFIG_DIR"
                 echo "$NEW_DISP" > "$WAIFU_DISPLAYER_FILE"
                 echo "Default displayer set to: $NEW_DISP"
@@ -138,7 +138,7 @@ main() {
                 echo "Default displayer cleared (will auto-detect)"
                 ;;
             *)
-                echo "Error: Invalid displayer '$NEW_DISP'. Valid: icat, chafa, img2txt, jp2a" >&2
+                echo "Error: Invalid displayer '$NEW_DISP'. Valid: icat, chafa, img2txt, jp2a, sixel" >&2
                 exit 1
                 ;;
         esac
@@ -229,7 +229,7 @@ main() {
     DISPLAYER="$DEFAULT_DISPLAYER"
     if [[ $# -ge 1 ]]; then
         case "${1}" in
-            icat|chafa|img2txt|jp2a)
+            icat|chafa|img2txt|jp2a|sixel)
                 DISPLAYER="${1}"
                 shift
                 ;;

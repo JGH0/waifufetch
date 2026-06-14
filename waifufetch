@@ -5,7 +5,7 @@
 # Repository: https://github.com/JGH0/waifufetch
 # License: MIT
 
-set -euo pipefail 2>/dev/null || set -eu
+set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/libwaifu.sh"
 
@@ -55,10 +55,6 @@ main() {
                 ;;
             --help-config)
                 print_config_help
-                exit 0
-                ;;
-            --print-default-config)
-                echo "$WAIFU_DEFAULT_CONFIG_JSON"
                 exit 0
                 ;;
             --resetSettings)
@@ -133,13 +129,13 @@ main() {
     if [[ "${1:-}" == "--setDefaultDisplayer" ]]; then
         if [[ $# -lt 2 ]]; then
             echo "Usage: waifufetch --setDefaultDisplayer <displayer>"
-            echo "Valid: icat, chafa, img2txt, jp2a"
+            echo "Valid: icat, chafa, img2txt, jp2a, sixel"
             echo "Run with empty value to clear: --setDefaultDisplayer \"\""
             exit 1
         fi
         local NEW_DISP="$2"
         case "$NEW_DISP" in
-            icat|chafa|img2txt|jp2a)
+            icat|chafa|img2txt|jp2a|sixel)
                 mkdir -p "$WAIFU_CONFIG_DIR"
                 echo "$NEW_DISP" > "$WAIFU_DISPLAYER_FILE"
                 echo "Default displayer set to: $NEW_DISP"
@@ -149,7 +145,7 @@ main() {
                 echo "Default displayer cleared (will auto-detect)"
                 ;;
             *)
-                echo "Error: Invalid displayer '$NEW_DISP'. Valid: icat, chafa, img2txt, jp2a" >&2
+                echo "Error: Invalid displayer '$NEW_DISP'. Valid: icat, chafa, img2txt, jp2a, sixel" >&2
                 exit 1
                 ;;
         esac
@@ -240,7 +236,7 @@ main() {
     DISPLAYER="$DEFAULT_DISPLAYER"
     if [[ $# -ge 1 ]]; then
         case "${1}" in
-            icat|chafa|img2txt|jp2a)
+            icat|chafa|img2txt|jp2a|sixel)
                 DISPLAYER="${1}"
                 shift
                 ;;
@@ -314,14 +310,6 @@ main() {
         echo "[debug] category:     $CATEGORY" >&2
         echo "[debug] default_sfw:  $DEFAULT_SFW" >&2
         echo "[debug] displayer:    ${DISPLAYER:-auto}" >&2
-        echo "[debug] bash:         $(bash --version 2>/dev/null | head -1)" >&2
-        echo "[debug] kernel:       $(uname -srm 2>/dev/null || echo 'unknown')" >&2
-        echo "[debug] columns:      $(tput cols 2>/dev/null || echo ${COLUMNS:-80})" >&2
-        echo "[debug] chafa:        $(command -v chafa && chafa --version 2>/dev/null | head -1 || echo 'not installed')" >&2
-        echo "[debug] jq:           $(command -v jq && jq --version 2>/dev/null || echo 'not installed')" >&2
-        echo "[debug] img2txt:      $(command -v img2txt 2>/dev/null || echo 'not installed')" >&2
-        echo "[debug] jp2a:         $(command -v jp2a 2>/dev/null || echo 'not installed')" >&2
-        echo "[debug] config:        ${CONFIG_PATH:-${WAIFU_JSON_CONFIG:-default}}" >&2
     fi
 
     local HAS_CONFIG=0
@@ -357,14 +345,6 @@ main() {
             echo "Warning: 'curl' not found -- cannot fetch waifu images." >&2
             echo "Install curl or use -i <file> for local images." >&2
             offline_msg="'curl' missing -- waifu image not available."
-        elif ! curl --version &>/dev/null; then
-            echo "Warning: curl is installed but broken (library link error?)." >&2
-            echo "Try: pkg upgrade curl libngtcp2     (Termux)" >&2
-            echo "  or: pacman -S curl                 (Arch)" >&2
-            echo "  or: apt install --reinstall curl   (Debian)" >&2
-            offline_msg="curl is broken -- waifu image not available."
-            # Invalidate cache to prevent corrupted image display
-            rm -f /tmp/waifu/meta.txt /tmp/waifu/img 2>/dev/null || true
         else
             fetch_and_cache
             if [[ -n "$IMAGE_URL" && -n "$IMAGE_FILE" && -s "$IMAGE_FILE" ]]; then
@@ -430,9 +410,8 @@ main() {
         local width="${COLUMNS:-80}"
         if command -v tput &>/dev/null; then
             local tput_w
-            local tput_w tput_rc
-            tput_w="$(tput cols 2>/dev/null)" && tput_rc=$? || tput_rc=$?
-            [[ $tput_rc -eq 0 && "$tput_w" -gt 0 ]] && width="$tput_w"
+            tput_w="$(tput cols 2>/dev/null || echo 80)"
+            [[ "$tput_w" -gt 0 ]] && width="$tput_w"
         fi
 
         # Check if requested displayer is available
@@ -466,6 +445,13 @@ main() {
                         DISPLAYER_AVAILABLE=0
                     fi
                     ;;
+                sixel)
+                    if ! command -v chafa &>/dev/null; then
+                        echo "Error: '$DISPLAYER' requested but chafa not installed." >&2
+                        echo "Install chafa (e.g., pacman -S chafa)" >&2
+                        DISPLAYER_AVAILABLE=0
+                    fi
+                    ;;
             esac
         fi
 
@@ -482,17 +468,6 @@ main() {
 
         # icat for waifufetch uses text-art side-by-side (native icat
         # is meant for the standalone \`waifu\` command, not for fetch display)
-        # Auto-detect displayer when none explicitly set
-        if [[ -z "$DISPLAYER" ]]; then
-            if command -v chafa &>/dev/null; then
-                DISPLAYER="chafa"
-            elif command -v img2txt &>/dev/null; then
-                DISPLAYER="img2txt"
-            elif command -v jp2a &>/dev/null; then
-                DISPLAYER="jp2a"
-            fi
-        fi
-
         if [[ "$DISPLAYER" == "icat" ]]; then
             DISPLAYER=""
         fi
@@ -512,15 +487,84 @@ main() {
             fi
         fi
 
-        # Pre-compute info column position for the given displayer
-        local WAIFU_INFO_COL=""
-        if [[ "$DISPLAYER" == "chafa" ]]; then
-            local _iw=$((width / 3 - 1))
-            [[ $_iw -lt 8 ]] && _iw=8
-            WAIFU_INFO_COL=$((_iw * 2 + 2))
+        
+        if [[ "$DISPLAYER" == "sixel" ]]; then
+            [[ $DEBUG -eq 1 ]] && echo "[debug] sixel mode: text-art side-by-side" >&2
+            local i
+            for ((i=0; i<CONFIG_LOGO_PADDING_TOP; i++)); do echo; done
+
+            # Compute image dimensions: 2/3 terminal width, respect AR
+            local _dim _img_pix_w _img_pix_h
+            _dim="$(get_img_pixel_size "$tmpfile" 2>/dev/null || echo '')"
+            _img_pix_w="${_dim%% *}"
+            _img_pix_h="${_dim##* }"
+
+            # Match block mode sizing
+            local img_w=$((width / 2 - 2))
+            [[ $img_w -lt 15 ]] && img_w=15
+            [[ $img_w -gt 100 ]] && img_w=100
+            local img_h=$((img_w * 2 / 3))
+            [[ $img_h -lt $INFO_LINE_COUNT ]] && img_h=$INFO_LINE_COUNT
+            local term_height="${LINES:-24}"
+            command -v tput &>/dev/null && term_height="$(tput lines 2>/dev/null || echo 24)"
+            local _cap=$((term_height - 3))
+            [[ $img_h -gt $_cap ]] && img_h=$_cap
+            [[ $img_h -lt 5 ]] && img_h=5
+
+            # Compute actual rendered image size in text cells (cell aspect ~2:1)
+            local _rendered_w=$img_w _rendered_h=$img_h
+            if [[ $_img_pix_w -gt 0 && $_img_pix_h -gt 0 ]]; then
+                local _w_by_h=$(( (2 * img_h * _img_pix_w + _img_pix_h - 1) / _img_pix_h ))
+                local _h_by_w=$(( (img_w * _img_pix_h + 2 * _img_pix_w - 1) / (2 * _img_pix_w) ))
+                if (( _w_by_h <= img_w )); then
+                    _rendered_w=$_w_by_h; _rendered_h=$img_h
+                else
+                    _rendered_w=$img_w; _rendered_h=$_h_by_w
+                fi
+                [[ $_rendered_w -lt 8  ]] && _rendered_w=8
+                [[ $_rendered_w -gt $img_w ]] && _rendered_w=$img_w
+                [[ $_rendered_h -lt $INFO_LINE_COUNT ]] && _rendered_h=$INFO_LINE_COUNT
+                [[ $_rendered_h -gt $img_h ]] && _rendered_h=$img_h
+            fi
+            local info_col=$((_rendered_w + 2))
+
+            # ---- Kitty native: clear + place at top + side-by-side info ----
+            if [[ -n "${KITTY_WINDOW_ID:-}" || "${TERM:-}" == *kitty* ]] && command -v kitty &>/dev/null; then
+                printf '\033[2J\033[H\033[?25l'
+                for ((_rl=0; _rl<INFO_LINE_COUNT; _rl++)); do
+                    printf '\033[%d;%dH%s' $((_rl + 1)) "$info_col" "${INFO_LINES[$_rl]:-}"
+                done
+                kitty +kitten icat --place "${img_w}x${img_h}@0x0" --align left --z-index -1 --silent "$tmpfile" 2>/dev/null || {
+                    printf '\033[?25h'
+                    local _art_lines
+                    _readlines _art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" chafa "$max_info_width" || true)
+                    [[ ${#_art_lines[@]} -gt 0 ]] && print_side_by_side_raw _art_lines INFO_LINES
+                    [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+                    rm -f "${tmpfile:-}"
+                    return
+                }
+                local _url_row=$((_rendered_h + 1))
+                printf '\033[%d;1H' $_url_row
+                [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+                printf '\033[?25h'
+            else
+                local _art_lines
+                _readlines _art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" chafa "$max_info_width" || true)
+                if [[ ${#_art_lines[@]} -gt 0 ]]; then
+                    print_side_by_side_raw _art_lines INFO_LINES
+                else
+                    for _line in "${INFO_LINES[@]}"; do
+                        printf '  %s\n' "$_line"
+                    done
+                fi
+                [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+            fi
+            prefetch_cache
+            rm -f "${tmpfile:-}"
+            return
         fi
 
-        # ---- Logo padding top ----
+# ---- Logo padding top ----
         local i
         for ((i=0; i<CONFIG_LOGO_PADDING_TOP; i++)); do echo; done
 
@@ -552,11 +596,7 @@ main() {
                 local gif_h=$((gif_w * 2 / 3))
                 # Match info line count, cap at terminal height
                 local term_height="${LINES:-24}"
-                if command -v tput &>/dev/null; then
-                    local _th _th_rc
-                    _th="$(tput lines 2>/dev/null)" && _th_rc=$? || _th_rc=$?
-                    [[ $_th_rc -eq 0 && "$_th" -gt 0 ]] && term_height="$_th"
-                fi
+                command -v tput &>/dev/null && term_height="$(tput lines 2>/dev/null || echo 24)"
                 local height_cap=$((term_height - 3))
                 [[ $INFO_LINE_COUNT -gt $gif_h ]] && gif_h=$INFO_LINE_COUNT
                 [[ $gif_h -gt $height_cap ]] && gif_h=$height_cap
@@ -569,6 +609,7 @@ main() {
                 # Pre-render all frames, pad to fill info text height
                 local frame_art=()
                 local frame_lines=$info_count
+                local display_lines=$(( info_count > gif_h ? info_count : gif_h ))
                 local art_width=0
                 for ((idx=0; idx<frame_count; idx++)); do
                     local out
@@ -577,15 +618,15 @@ main() {
                         "${frames[$idx]}" 2>/dev/null || true)
                     _readlines lines < <(printf '%s\n' "$out")
                     local nl=${#lines[@]}
-                    # Pad with empty lines to match info_count
-                    while (( nl < info_count )); do
+                    # Pad with empty lines to match display_lines
+                    while (( nl < display_lines )); do
                         lines+=("")
                         ((nl++))
                     done
                     frame_art+=("${lines[@]}")
                     if [[ $idx -eq 0 ]]; then
                         for line in "${lines[@]}"; do
-                            local clean=$(printf '%s' "$line" | sed \$'s/\e\[[0-9;?]*[a-zA-Z]//g; s/[[:space:]]*$//')
+                            local clean=$(printf '%s' "$line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/[[:space:]]*$//')
                             local llen=${#clean}
                             [[ $llen -gt $art_width ]] && art_width=$llen
                         done
@@ -594,7 +635,6 @@ main() {
                 [[ $art_width -lt 1 ]] && art_width=$gif_w
 
                 local info_col=$((art_width + 2))
-                local display_lines=$frame_lines
 
                 # Frame delay (centiseconds)
                 local frame_delay=5
@@ -603,8 +643,6 @@ main() {
                     raw=$(identify -format "%T" "${frames[0]}" 2>/dev/null || echo "5")
                     [[ "$raw" =~ ^[0-9]+$ && "$raw" -gt 0 ]] && frame_delay="$raw"
                 fi
-                # bash 3.2 (macOS): read -t doesn't support fractional seconds
-                # Use integer seconds where possible, chunk smaller delays into multiple reads
                 local sleep_sec
                 if ((frame_delay < 10)); then
                     sleep_sec="0.0${frame_delay}"
@@ -615,22 +653,14 @@ main() {
                     local frac_part=$((frame_delay % 100))
                     printf -v sleep_sec "%d.%02d" "$int_part" "$frac_part"
                 fi
-                # On bash 3.2, read -t rejects fractional seconds; fall back to integer floor
-                if ! read -t "$sleep_sec" -N 0 2>/dev/null; then
-                    # bash 3.2 fallback: integer seconds only
-                    local sleep_int=$((frame_delay / 100))
-                    [[ $sleep_int -lt 1 ]] && sleep_int=1
-                    printf -v sleep_sec "%d" "$sleep_int"
-                fi
 
                 # Print blank lines for animation area
                 for ((i=0; i<display_lines; i++)); do echo; done
-                # Print URL below
-                [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+                # Extra blank for alignment (URL printed by animation loop)
+                echo
 
                 # Move cursor back to top
-                local url_line=$([[ $NO_LINK -eq 0 ]] && echo 1 || echo 0)
-                local total_below=$((url_line))
+                local total_below=1
                 printf '\033[%dA' "$((display_lines + total_below))"
 
                 local TT_SAVED
@@ -641,39 +671,60 @@ main() {
                 local keep_going=true
                 while $keep_going; do
                     for ((idx=0; idx<frame_count; idx++)); do
-                        if read -t "$sleep_sec" -N 1 -s 2>/dev/null; then
+                        if read -t "$sleep_sec" -N 1 -s; then
                             keep_going=false
                             break
                         fi
 
-                        # Print side-by-side: art | info
-                        local art_start=$((idx * frame_lines))
-                        for ((i=0; i<display_lines; i++)); do
+                                                # Print side-by-side: art | info (skip trailing empty art lines)
+                        local art_start=$((idx * display_lines))
+                        local _last_ai=-1
+                        for ((_ai=0; _ai<display_lines; _ai++)); do
+                            if [[ -n "${frame_art[$((art_start + _ai))]:-}" ]]; then
+                                _last_ai=$_ai
+                            fi
+                        done
+                        for ((i=0; i<=_last_ai; i++)); do
                             local art="${frame_art[$((art_start + i))]:-}"
                             local info="${info_lines[$i]:-}"
                             if [[ -n "$art" && -n "$info" ]]; then
-                                printf '%s\033[%dG%s\n' "$art" "$info_col" "$info"
+                                printf '%s[%dG%s
+' "$art" "$info_col" "$info"
                             elif [[ -n "$art" ]]; then
-                                printf '%s\n' "$art"
+                                printf '%s
+' "$art"
                             elif [[ -n "$info" ]]; then
-                                printf '\033[%dG%s\n' "$info_col" "$info"
+                                printf '[%dG%s
+' "$info_col" "$info"
                             else
                                 echo
                             fi
                         done
-                        # Print URL
+                        # Print URL just below last art line
+                        echo
                         [[ $NO_LINK -eq 0 ]] && echo "$image_url"
 
+                        # Fill to match initial setup height (display_lines blanks + URL)
+                        local _frame_total=$(( _last_ai + 3 + total_below ))
+                        local _remaining=$(( display_lines + total_below - _last_ai - 3 ))
+                        for ((_ri=0; _ri<_remaining; _ri++)); do echo; done
+
                         # Move cursor back to top for next frame
-                        printf '\033[%dA' "$((display_lines + total_below))"
+                        printf '[%dA' "$((display_lines + total_below))"
                     done
                 done
 
                 printf '\033[?25h'
                 stty "$TT_SAVED" 2>/dev/null || true
 
-                # Final static frame side-by-side
+                # Final static frame side-by-side, skip trailing empty lines
+                local _last_art_line=-1
                 for ((i=0; i<display_lines; i++)); do
+                    if [[ -n "${frame_art[$i]:-}" ]]; then
+                        _last_art_line=$i
+                    fi
+                done
+                for ((i=0; i<=_last_art_line; i++)); do
                     local art="${frame_art[$i]:-}"
                     local info="${info_lines[$i]:-}"
                     if [[ -n "$art" && -n "$info" ]]; then
@@ -686,20 +737,16 @@ main() {
                         echo
                     fi
                 done
+                # URL: 1-2 lines below last art line
+                echo
                 [[ $NO_LINK -eq 0 ]] && echo "$image_url"
+                printf '\033[J'
                 # Cursor is at bottom of output -- prompt appears correctly
             else
                 # Can't animate -- show static side-by-side with INFO_LINES
                 _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" "$DISPLAYER" "$max_info_width" || true)
                 if [[ ${#art_lines[@]} -gt 0 ]]; then
-                    # Compute info column: chafa block chars are double-width
-                    if [[ "$DISPLAYER" == "chafa" ]] && [[ -n "${DISPLAYER}" ]]; then
-                        local _iw=$((width / 3 - 1))
-                        [[ $_iw -lt 8 ]] && _iw=8
-                        WAIFU_INFO_COL=$((_iw * 2 + 2))
-                    fi
-
-                    print_side_by_side_raw art_lines INFO_LINES 
+                    print_side_by_side_raw art_lines INFO_LINES
                     [[ $NO_LINK -eq 0 ]] && echo "$image_url"
                 else
                     echo ""
@@ -714,7 +761,7 @@ main() {
             _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" "$DISPLAYER" "$max_info_width" || true)
 
             if [[ ${#art_lines[@]} -gt 0 ]]; then
-                print_side_by_side_raw art_lines INFO_LINES 
+                print_side_by_side_raw art_lines INFO_LINES
                 [[ $NO_LINK -eq 0 ]] && echo "$image_url"
             else
                 echo "  Waifu image unavailable (install chafa, img2txt, or jp2a)" >&2

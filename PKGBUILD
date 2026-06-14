@@ -13,7 +13,7 @@ optdepends=('kitty: native image display in kitty terminal'
             'jp2a: black and white ASCII art fallback'
             'img2txt: colored ASCII art fallback (caca-utils)')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/JGH0/$pkgname/archive/v1.4.0.tar.gz")
-sha256sums=('0000000000000000000000000000000000000000000000000000000000000000')
+sha256sums=('9124430903752f2dcc52d8d3597be3e5960cc7c37b68890955aae6571a7b1349')
 
 package() {
     cd "$srcdir/$pkgname-$pkgver"

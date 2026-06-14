@@ -58,9 +58,17 @@ echo ""
 echo "--- waifufetch static image test (noLink) ---"
 if [ -f "tests/test.png" ]; then
     echo "  Running waifufetch with test image..."
-    bash waifufetch --noLink -i tests/test.png 2>&1 | head -20
-    echo ""
-    echo "  (waifufetch image display test completed)"
+    # Capture to temp file instead of piping (bash 3.2 may segfault on pipe+SIGPIPE)
+    WAIFU_TMP="/tmp/waifu-test-output-$$.txt"
+    bash waifufetch --noLink -i tests/test.png > "$WAIFU_TMP" 2>/dev/null || true
+    if [ -s "$WAIFU_TMP" ]; then
+        head -15 "$WAIFU_TMP"
+        echo ""
+        echo "  (waifufetch image display test completed)"
+    else
+        echo "  (waifufetch produced no output — displayer may not work in container)"
+    fi
+    rm -f "$WAIFU_TMP" 2>/dev/null || true
 else
     echo "  (no test image found at tests/test.png, skipping display test)"
 fi

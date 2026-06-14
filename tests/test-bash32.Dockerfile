@@ -1,10 +1,10 @@
 # Dockerfile: waifufetch bash 3.2 compatibility test
-# Build:   docker build -t waifu-bash32 -f docker/test-bash32.Dockerfile .
+# Build:   docker build -t waifu-bash32 -f tests/test-bash32.Dockerfile .
 # Run:     docker run -it --rm waifu-bash32
 
 FROM alpine:3.21
 RUN apk add --no-cache curl gcc musl-dev make ncurses-dev xz sed
-COPY docker/patch-bash32.sh /tmp/patch-bash32.sh
+COPY tests/patch-bash32.sh /tmp/patch-bash32.sh
 RUN curl -sL https://ftp.gnu.org/gnu/bash/bash-3.2.tar.gz | tar xz -C / \
     && /bin/sh /tmp/patch-bash32.sh \
     && cd /bash-3.2 \
@@ -20,4 +20,4 @@ RUN apk add --no-cache chafa imagemagick jq sed
 RUN ln -sf /usr/local/bin/bash /usr/local/bin/bash32
 WORKDIR /waifufetch
 COPY . /waifufetch/
-CMD /waifufetch/docker/run-bash32-test.sh
+CMD /waifufetch/tests/run-bash32-test.sh

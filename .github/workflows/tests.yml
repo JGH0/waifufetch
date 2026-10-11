@@ -1,0 +1,63 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq chafa imagemagick shellcheck
+          # jp2a / caca-utils are optional displayers; install if available
+          sudo apt-get install -y jp2a caca-utils || true
+
+      - name: Show tool versions
+        run: |
+          bash --version | head -1
+          shellcheck --version | head -2
+          jq --version || true
+          chafa --version | head -1 || true
+          docker --version
+
+      - name: Run test suite
+        # Sections 1-2 run on the host; Section 3 runs the Docker-backed
+        # bash 3.2 compatibility tests (Docker is present on GitHub runners).
+        run: bash test.sh
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck (errors + warnings)
+        run: |
+          shellcheck -S warning -x \
+            libwaifu.sh waifu waifufetch release.sh test.sh
+
+  syntax:
+    name: bash syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: bash -n on all scripts
+        run: |
+          for f in libwaifu.sh waifu waifufetch release.sh test.sh tests/*.sh; do
+            echo "checking $f"
+            bash -n "$f"
+          done

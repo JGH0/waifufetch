@@ -94,6 +94,18 @@ String between the key label and the value. Default: `": "`
 { "display": { "separator": " => " } }
 ```
 
+### `privacy.publicIp`
+
+Whether to look up and display the public IP address. Default: `true`.
+
+Setting this to `false` skips the `ifconfig.me` / `api.ipify.org` network
+request entirely and omits the `publicip` info type. Useful for privacy or
+offline-enabled setups.
+
+```json
+{ "privacy": { "publicIp": false } }
+```
+
 ### `modules`
 
 Array of items to display. If omitted, all available info is shown

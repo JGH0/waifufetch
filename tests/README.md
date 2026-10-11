@@ -53,7 +53,17 @@ bash tests/run-all-tests.sh
 - **End-to-end run** — runs `waifufetch --noLink -i tests/test.png` and captures output,
   verifying it contains OS, Host, Kernel, and system stats.
 - **Flag tests** — `-v`, `--help`, `--help-config`, `--noLink` combinations.
+- **`privacy.publicIp` config** — verifies the config key disables/enables the
+  public IP lookup.
 - **Script validation** — bash `-n` syntax check on all test scripts.
+
+### Section 2b — shellcheck static analysis
+
+- Runs `shellcheck -S warning -x` on `libwaifu.sh`, `waifu`, `waifufetch`,
+  `release.sh`, and every script in `tests/`.
+- Errors and warnings fail the suite; configuration lives in `.shellcheckrc`
+  at the project root (see file for the disables and their rationale).
+- Skipped gracefully if `shellcheck` is not installed.
 
 ### Section 3 — Docker bash 3.2 (auto-detected, requires Docker)
 
@@ -93,6 +103,18 @@ The report includes:
 and end-to-end waifufetch runs. It's checked into the repo so tests work
 offline and don't depend on network access.
 
+## Continuous Integration
+
+`.github/workflows/tests.yml` runs on every push, pull request, and manual
+dispatch. It has three jobs:
+
+- **test suite** — installs `jq`, `chafa`, ImageMagick and `shellcheck`, then
+  runs `bash test.sh` (Sections 1–3, including the Docker bash 3.2 tests).
+- **shellcheck** — runs `shellcheck -S warning -x` on the shipped scripts.
+- **bash syntax** — runs `bash -n` on every script.
+
+Configuration for the shellcheck step lives in `.shellcheckrc` at the repo root.
+
 ## Adding Tests
 
 1. Add a new `.sh` script in `tests/`
@@ -107,6 +129,7 @@ offline and don't depend on network access.
 |------|---------|-------|
 | bash 4+ | 1, 2 | For running the test scripts themselves |
 | bash 3.2 | 3 | Provided by Docker container |
+| shellcheck | 2b | Static analysis (optional; skipped if missing) |
 | chafa | 2, 3 | Text-art image rendering |
 | ImageMagick (identify) | 2 | Pixel size detection |
 | jq | 2 | JSON processing (optional) |

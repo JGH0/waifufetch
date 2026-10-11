@@ -134,6 +134,7 @@ _psbsr_test() {
     local _art_name="_my_art" _info_name="_my_info"
     eval "local _art_len=\${#$_art_name[@]}"
     eval "local _info_len=\${#$_info_name[@]}"
+    # shellcheck disable=SC2154  # both set by eval above (bash 3.2 nameref workaround)
     if [[ $_art_len -eq 2 && $_info_len -eq 2 ]]; then
         return 0
     fi

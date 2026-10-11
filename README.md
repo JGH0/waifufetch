@@ -241,6 +241,9 @@ waifufetch -c my-config.json
   "display": {
     "separator": " => "
   },
+  "privacy": {
+    "publicIp": false
+  },
   "modules": [
     { "type": "os", "key": "OS ", "keyColor": "bold 31" },
     { "type": "host", "key": "Host ", "keyColor": "cyan" },

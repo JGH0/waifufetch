@@ -1,0 +1,17 @@
+# shellcheck configuration for waifufetch
+#
+# Run locally with:  shellcheck -x libwaifu.sh waifu waifufetch release.sh
+# The test suite runs shellcheck at severity "warning" (errors + warnings).
+
+# libwaifu.sh is sourced by waifu/waifufetch, so variables it assigns are used
+# from the calling script. shellcheck analyses files individually and cannot
+# see those cross-file uses, so it flags them as unused (SC2034). They are not.
+#
+# SC1087: the "${name[@]}" / "${name[$i]}" patterns are expanded via eval to
+#         emulate namerefs, which bash 3.2 (macOS) does not support. shellcheck
+#         cannot follow the indirection, so the array-index warnings are noise.
+#
+# SC2155: "declare and assign separately" is a correctness hint, but this
+#         codebase deliberately assigns inline in many `local x="$(...)"`
+#         helpers where the command's exit status is handled explicitly.
+disable=SC2034,SC1087,SC2155

@@ -47,6 +47,7 @@ _info=("info1" "info2")
 _art_name="_art" _info_name="_info"
 eval "_art_len=\${#$_art_name[@]}"
 eval "_info_len=\${#$_info_name[@]}"
+# shellcheck disable=SC2154  # both set by eval above (bash 3.2 nameref workaround)
 if [ $_art_len -eq 2 ] && [ $_info_len -eq 2 ]; then
     echo "  eval array access: PASS"
 else

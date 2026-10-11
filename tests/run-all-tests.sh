@@ -171,6 +171,27 @@ echo "$HELP_CFG" | grep -q -E "(modules|logo)" && ok "--help-config shows config
 
 bash "$PROJECT_DIR/waifufetch" --noLink -v 2>&1 | grep -q "waifufetch v" && ok "--noLink with -v works" || fail "--noLink with -v failed"
 
+# privacy.publicIp config: false must disable the lookup, true/default must keep it
+if command -v jq &>/dev/null; then
+    PIPC_OFF_CFG=$(mktemp /tmp/waifufetch-pip-off-XXXXXX.json)
+    printf '{ "privacy": { "publicIp": false } }' > "$PIPC_OFF_CFG"
+    PIPC_OFF_VAL=$(bash -c "source '$PROJECT_DIR/libwaifu.sh'; load_json_config '$PIPC_OFF_CFG'; echo \$CONFIG_PUBLIC_IP" 2>/dev/null || true)
+    if [[ "$PIPC_OFF_VAL" == "0" ]]; then
+        ok "config privacy.publicIp=false sets CONFIG_PUBLIC_IP=0"
+    else
+        fail "config privacy.publicIp=false not honoured (got '$PIPC_OFF_VAL')"
+    fi
+    PIPC_DEF_VAL=$(bash -c "source '$PROJECT_DIR/libwaifu.sh'; load_json_config /nonexistent-waifu-cfg; echo \$CONFIG_PUBLIC_IP" 2>/dev/null || true)
+    if [[ "$PIPC_DEF_VAL" == "1" ]]; then
+        ok "default config keeps CONFIG_PUBLIC_IP=1"
+    else
+        fail "default config publicIp broken (got '$PIPC_DEF_VAL')"
+    fi
+    rm -f "$PIPC_OFF_CFG"
+else
+    info "jq not available — skipping privacy.publicIp config tests"
+fi
+
 # --- Built scripts validation ---
 info ""
 info "--- Test script syntax validation ---"
@@ -181,6 +202,45 @@ for tf in "$SCRIPT_DIR"/*.sh; do
 done
 
 bash -n "$PROJECT_DIR/release.sh" 2>&1 && ok "release.sh syntax OK" || fail "release.sh has syntax errors"
+
+# ==================================================
+note "SECTION 2b: shellcheck static analysis"
+
+if command -v shellcheck &>/dev/null; then
+    info "shellcheck version: $(shellcheck --version 2>/dev/null | awk '/version:/ {print $2}')"
+    info ""
+
+    # Severity gate: warnings and errors fail the build; info/style are advisory.
+    SHELLCHECK_SEV="warning"
+
+    shellcheck_targets=(
+        "$PROJECT_DIR/libwaifu.sh"
+        "$PROJECT_DIR/waifu"
+        "$PROJECT_DIR/waifufetch"
+        "$PROJECT_DIR/release.sh"
+    )
+    # Also check every test script
+    for tf in "$SCRIPT_DIR"/*.sh; do
+        [[ -f "$tf" ]] && shellcheck_targets+=("$tf")
+    done
+
+    for target in "${shellcheck_targets[@]}"; do
+        name="$(basename "$target")"
+        sc_out=$(shellcheck -S "$SHELLCHECK_SEV" -x "$target" 2>&1 || true)
+        if [[ -z "$sc_out" ]]; then
+            ok "shellcheck clean: $name"
+        else
+            fail "shellcheck found issues in $name"
+            info "  shellcheck output for $name:"
+            printf '%s\n' "$sc_out" | while IFS= read -r line; do
+                info "    $line"
+            done
+        fi
+    done
+else
+    skip "shellcheck static analysis (shellcheck not installed)"
+    info "  Install shellcheck to enable: https://www.shellcheck.net/"
+fi
 
 # ==================================================
 note "SECTION 3: Docker bash 3.2 test"

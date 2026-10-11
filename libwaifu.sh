@@ -76,6 +76,7 @@ WAIFU_JSON_CONFIG="$WAIFU_CONFIG_DIR/config.json"
 CONFIG_LOGO_PADDING_TOP=0
 CONFIG_SEPARATOR=": "
 CONFIG_MODULES_OVERRIDE=""  # filled by load_json_config
+CONFIG_PUBLIC_IP=1         # filled by load_json_config (privacy.publicIp)
 
 # Built-in default config (used when no config.json exists)
 WAIFU_DEFAULT_CONFIG_JSON='{
@@ -84,6 +85,9 @@ WAIFU_DEFAULT_CONFIG_JSON='{
   },
   "display": {
     "separator": ": "
+  },
+  "privacy": {
+    "publicIp": true
   },
   "modules": [
     { "type": "os",        "key": "OS",        "keyColor": "bold cyan" },
@@ -169,8 +173,9 @@ _resolve_color() {
 }
 
 # load_json_config — loads ~/.config/waifufetch/config.json (or custom path)
-# Parses logo.padding.top, display.separator, and modules array.
-# Sets globals: CONFIG_LOGO_PADDING_TOP, CONFIG_SEPARATOR, CONFIG_MODULES_OVERRIDE
+# Parses logo.padding.top, display.separator, privacy.publicIp, and modules array.
+# Sets globals: CONFIG_LOGO_PADDING_TOP, CONFIG_SEPARATOR, CONFIG_PUBLIC_IP,
+#               CONFIG_MODULES_OVERRIDE
 load_json_config() {
     local cfg="${1:-$WAIFU_JSON_CONFIG}"
     command -v jq &>/dev/null || return 1
@@ -192,6 +197,15 @@ load_json_config() {
     # display.separator
     val="$(echo "$json" | jq -r '.display.separator // ": "' 2>/dev/null || echo ": ")"
     CONFIG_SEPARATOR="$val"
+
+    # privacy.publicIp — when false, skip the public IP network request
+    # (note: jq's "// true" would turn an explicit false into true, so use
+    #  an explicit null check instead)
+    val="$(echo "$json" | jq -r 'if .privacy.publicIp == null then true else .privacy.publicIp end' 2>/dev/null || echo true)"
+    case "$val" in
+        false|0|no) CONFIG_PUBLIC_IP=0 ;;
+        *)          CONFIG_PUBLIC_IP=1 ;;
+    esac
 
     # modules — store as JSON string for later processing
     CONFIG_MODULES_OVERRIDE="$(echo "$json" | jq -c '.modules // []' 2>/dev/null || echo "")"
@@ -1495,8 +1509,10 @@ collect_info() {
     [[ -n "$local_ip" ]] && INFO_PAIRS+=("Local IP" "$local_ip")
 
     # ---- Public IP ----
+    # Skipped when disabled in config (privacy.publicIp=false) for privacy
+    # or offline setups.
     local public_ip=""
-    if command -v curl &>/dev/null; then
+    if [[ ${CONFIG_PUBLIC_IP:-1} -eq 1 ]] && command -v curl &>/dev/null; then
         public_ip="$(curl -sf --max-time 2 https://ifconfig.me 2>/dev/null || \
                      curl -sf --max-time 2 https://api.ipify.org 2>/dev/null || true)"
     fi
@@ -1570,7 +1586,9 @@ collect_info() {
         if command -v gsettings &>/dev/null; then
             term_font="$(gsettings get org.gnome.desktop.interface monospace-font-name 2>/dev/null | sed "s/'//g" || true)"
             if [[ -z "$term_font" ]]; then
-                term_font="$(gsettings get org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:$(gsettings get org.gnome.Terminal.ProfilesList default 2>/dev/null | sed "s/'//g")/ font 2>/dev/null | sed "s/'//g" || true)"
+                local _vte_profile
+                _vte_profile="$(gsettings get org.gnome.Terminal.ProfilesList default 2>/dev/null | sed "s/'//g" || true)"
+                term_font="$(gsettings get "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:${_vte_profile}/" font 2>/dev/null | sed "s/'//g" || true)"
             fi
         fi
     fi
@@ -1691,7 +1709,7 @@ collect_info() {
     if [[ -n "$local_ip" ]]; then
         INFO_PAIRS+=("localip" "$local_ip")
     fi
-    # Public IP — opt-out via --no-public-ip flag
+    # Public IP — disabled via privacy.publicIp=false in config
     if [[ -n "$public_ip" ]]; then
         INFO_PAIRS+=("publicip" "$public_ip")
     fi
@@ -1777,7 +1795,7 @@ collect_info() {
     if [[ -z "$model" ]] && command -v dmidecode &>/dev/null; then
         model="$(dmidecode -s system-product-name 2>/dev/null || true)"
     fi
-    if [[ -z "$model" ]] && command -v sysctl &>/dev/null && [[ "$(uname -s 2>/dev/null || '')" == "Darwin" ]]; then
+    if [[ -z "$model" ]] && command -v sysctl &>/dev/null && [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
         model="$(sysctl -n hw.model 2>/dev/null || true)"
     fi
     if [[ -z "$model" ]] && command -v getprop &>/dev/null; then
@@ -1839,6 +1857,323 @@ collect_info() {
 }
 
 # ============================================================
+# parse_common_flags - shared argument parsing for waifu/waifufetch
+# Handles: --debug, --noLink, --list-*, --help-config, --resetSettings,
+#          -v/--version, -i, -a/--api, and optionally --config/-c.
+#
+# Populates the global array FILTERED_ARGS with everything it does not
+# consume, sets DEBUG / NO_LINK / IMAGE_INPUT_FILE / API_SOURCE, and exits
+# for terminal flags (--list-*, -v, --resetSettings, --help-config).
+#
+# Args: $1 = program name, $2 = "1" to also accept --config/-c,
+#       remaining args = the command-line arguments to parse.
+# ============================================================
+parse_common_flags() {
+    local prog="$1"
+    local allow_config="${2:-0}"
+    shift 2 2>/dev/null || shift $#
+
+    DEBUG=0
+    NO_LINK=0
+    IMAGE_INPUT_FILE=""
+    FILTERED_ARGS=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --debug)   DEBUG=1; shift ;;
+            --noLink)  NO_LINK=1; shift ;;
+            --config|-c)
+                if [[ "$allow_config" != "1" ]]; then
+                    FILTERED_ARGS+=("$1"); shift
+                    continue
+                fi
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --config/-c requires a file path argument" >&2
+                    exit 1
+                fi
+                CONFIG_PATH="$2"
+                shift 2
+                ;;
+            --list-tags|--list-categories|--list-ratings)
+                local _list_mode="${1#--list-}"
+                local _list_api=""
+                shift
+                # Check if nsfw was given before --list-tags (stored in FILTERED_ARGS)
+                for _pre_arg in "${FILTERED_ARGS[@]}"; do
+                    [[ "$_pre_arg" == "nsfw" ]] && { _list_mode="nsfw"; break; }
+                done
+                # Default --list-tags shows SFW-only tags
+                [[ "$_list_mode" == "tags" ]] && _list_mode="sfw"
+                # Accept: --list-tags <src>, --list-tags -a <src>
+                if [[ $# -ge 1 ]]; then
+                    if [[ "$1" == "-a" || "$1" == "--api" ]]; then
+                        shift; [[ $# -ge 1 ]] && { _list_api="$1"; shift; }
+                    else
+                        for _s in "${KNOWN_API_SOURCES[@]}"; do
+                            [[ "$1" == "$_s" && "$_s" != "auto" ]] && { _list_api="$1"; shift; break; }
+                        done
+                    fi
+                fi
+                print_tag_lists "$_list_mode" "$_list_api"
+                exit 0
+                ;;
+            --help-config)
+                print_config_help
+                exit 0
+                ;;
+            --resetSettings)
+                rm -rf "$WAIFU_CONFIG_DIR"
+                echo "Settings reset. Config directory removed: $WAIFU_CONFIG_DIR"
+                exit 0
+                ;;
+            -v|--version)
+                echo "$prog v$VERSION"
+                exit 0
+                ;;
+            -i)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: -i requires a file path argument" >&2
+                    exit 1
+                fi
+                IMAGE_INPUT_FILE="$2"
+                shift 2
+                ;;
+            -a|--api)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: -a/--api requires an API source argument" >&2
+                    echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+                    exit 1
+                fi
+                local _api_valid=0
+                for _s in "${KNOWN_API_SOURCES[@]}"; do
+                    [[ "$2" == "$_s" ]] && { _api_valid=1; break; }
+                done
+                if [[ $_api_valid -eq 0 ]]; then
+                    echo "Error: Unknown API source '$2'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+                    exit 1
+                fi
+                API_SOURCE="$2"
+                shift 2
+                ;;
+            *)  FILTERED_ARGS+=("$1"); shift ;;
+        esac
+    done
+
+    # Guard empty array expansion for bash < 4.0 (macOS) with set -u
+    if [[ ${#FILTERED_ARGS[@]} -eq 0 ]]; then
+        set --
+    else
+        set -- "${FILTERED_ARGS[@]}"
+    fi
+}
+
+# ============================================================
+# handle_help_and_setdefaults - shared --help and --setDefault* handling
+# Must be called after parse_common_flags (which leaves FILTERED_ARGS
+# expanded into "$@").
+#
+# Args: $1 = program name, remaining args = filtered command-line args.
+# ============================================================
+handle_help_and_setdefaults() {
+    local prog="$1"
+    shift
+
+    # ============================================================
+    # Help (scan all args)
+    # ============================================================
+    local HELP_REQUESTED=0 HELP_NSFW=0
+    for arg in "$@"; do
+        if [[ "$arg" == "--help" ]]; then
+            HELP_REQUESTED=1
+        fi
+    done
+    if [[ $HELP_REQUESTED -eq 1 ]]; then
+        for arg in "$@"; do
+            [[ "$arg" == "nsfw" ]] && { HELP_NSFW=1; break; }
+        done
+        if [[ $HELP_NSFW -eq 1 ]]; then
+            nsfw_help "$prog"
+        fi
+        usage "$prog"
+    fi
+
+    # ============================================================
+    # Set default displayer
+    # ============================================================
+    if [[ "${1:-}" == "--setDefaultDisplayer" ]]; then
+        if [[ $# -lt 2 ]]; then
+            echo "Usage: $prog --setDefaultDisplayer <displayer>"
+            echo "Valid: icat, chafa, img2txt, jp2a, sixel"
+            echo "Run with empty value to clear: --setDefaultDisplayer \"\""
+            exit 1
+        fi
+        local NEW_DISP="$2"
+        case "$NEW_DISP" in
+            icat|chafa|img2txt|jp2a|sixel)
+                mkdir -p "$WAIFU_CONFIG_DIR"
+                echo "$NEW_DISP" > "$WAIFU_DISPLAYER_FILE"
+                echo "Default displayer set to: $NEW_DISP"
+                ;;
+            "")
+                rm -f "$WAIFU_DISPLAYER_FILE"
+                echo "Default displayer cleared (will auto-detect)"
+                ;;
+            *)
+                echo "Error: Invalid displayer '$NEW_DISP'. Valid: icat, chafa, img2txt, jp2a, sixel" >&2
+                exit 1
+                ;;
+        esac
+        exit 0
+    fi
+
+    # ============================================================
+    # Set default SFW
+    # ============================================================
+    if [[ "${1:-}" == "--setDefaultSFW" ]]; then
+        if [[ $# -lt 2 ]]; then
+            echo "Usage: $prog --setDefaultSFW <rating>"
+            echo "Valid: safe, suggestive, borderline"
+            echo "Run with empty value to reset to default: --setDefaultSFW \"\""
+            exit 1
+        fi
+        local NEW_VAL="$2"
+        case "$NEW_VAL" in
+            safe)
+                mkdir -p "$WAIFU_CONFIG_DIR"
+                echo "safe" > "$CONFIG_FILE"
+                echo "Default SFW rating set to: safe (safe only)"
+                ;;
+            suggestive)
+                mkdir -p "$WAIFU_CONFIG_DIR"
+                echo "suggestive" > "$CONFIG_FILE"
+                echo "Default SFW rating set to: suggestive (safe + suggestive)"
+                ;;
+            borderline)
+                mkdir -p "$WAIFU_CONFIG_DIR"
+                echo "borderline" > "$CONFIG_FILE"
+                echo "Default SFW rating set to: borderline (safe + suggestive + borderline)"
+                ;;
+            explicit)
+                echo "Error: Cannot set default SFW to 'explicit'. Use '$prog explicit' for one-off requests." >&2
+                exit 1
+                ;;
+            "")
+                rm -f "$CONFIG_FILE"
+                echo "Default SFW rating reset to: safe (default)"
+                ;;
+            *)
+                echo "Error: Invalid rating '$NEW_VAL'. Valid: safe, suggestive, borderline" >&2
+                exit 1
+                ;;
+        esac
+        exit 0
+    fi
+
+    # ============================================================
+    # Set default API
+    # ============================================================
+    if [[ "${1:-}" == "--setDefaultAPI" ]]; then
+        if [[ $# -lt 2 ]]; then
+            echo "Usage: $prog --setDefaultAPI <source>"
+            echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru"
+            echo "Run with empty value to reset to default: --setDefaultAPI \"\""
+            exit 1
+        fi
+        local NEW_API_VAL="$2"
+        if [[ -z "$NEW_API_VAL" ]]; then
+            rm -f "$WAIFU_API_FILE"
+            echo "Default API source reset to: auto (fallback chain)"
+            exit 0
+        fi
+        local _api_valid=0
+        for _s in "${KNOWN_API_SOURCES[@]}"; do
+            [[ "$NEW_API_VAL" == "$_s" ]] && { _api_valid=1; break; }
+        done
+        if [[ $_api_valid -eq 0 ]]; then
+            echo "Error: Invalid API source '$NEW_API_VAL'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+            exit 1
+        fi
+        mkdir -p "$WAIFU_CONFIG_DIR"
+        printf '%s\n' "$NEW_API_VAL" > "$WAIFU_API_FILE"
+        echo "Default API source set to: $NEW_API_VAL"
+        echo "  auto       - fallback chain: nekosapi -> waifu.im -> nekos.best -> danbooru"
+        echo "  waifu.im   - waifu.im only"
+        echo "  nekosapi   - nekosapi.com v4 only"
+        echo "  nekos.best - nekos.best only"
+        echo "  danbooru   - Danbooru only (JSON API) - supports femboy, trap, and more"
+        exit 0
+    fi
+}
+
+# ============================================================
+# parse_mode_and_category - shared mode/rating/category parsing
+# Sets MODE, RATING_LEVEL, CATEGORY, IS_DIRECT_RATING from "$@".
+# Args: $1 = program name (for the unknown-category warning),
+#       remaining args = filtered command-line args.
+# ============================================================
+parse_mode_and_category() {
+    local prog="$1"
+    shift
+
+    # Parse positional displayer from first arg
+    DISPLAYER="$DEFAULT_DISPLAYER"
+    if [[ $# -ge 1 ]]; then
+        case "${1}" in
+            icat|chafa|img2txt|jp2a|sixel)
+                DISPLAYER="${1}"
+                shift
+                ;;
+        esac
+    fi
+
+    MODE="sfw"
+    RATING_LEVEL="$DEFAULT_SFW"
+    CATEGORY="waifu"
+    IS_DIRECT_RATING=0
+
+    if [[ $# -ge 1 ]]; then
+        case "${1}" in
+            sfw)
+                MODE="sfw"
+                RATING_LEVEL="$DEFAULT_SFW"
+                [[ $# -ge 2 ]] && CATEGORY="$2"
+                ;;
+            nsfw)
+                MODE="nsfw"
+                RATING_LEVEL="explicit"
+                [[ $# -ge 2 ]] && CATEGORY="$2"
+                ;;
+            safe|suggestive|borderline|explicit)
+                RATING_LEVEL="${1}"
+                IS_DIRECT_RATING=1
+                [[ "${1}" == "explicit" ]] && MODE="nsfw" || MODE="sfw"
+                [[ $# -ge 2 ]] && CATEGORY="$2"
+                ;;
+            *)
+                CATEGORY="${1}"
+                ;;
+        esac
+    fi
+
+    # Unknown tag warning
+    local TAG_UNKNOWN=1
+    for t in "${ALL_KNOWN_TAGS[@]}"; do
+        if [[ "$t" == "$CATEGORY" ]]; then
+            TAG_UNKNOWN=0
+            break
+        fi
+    done
+    if [[ $TAG_UNKNOWN -eq 1 ]]; then
+        for r in "${KNOWN_RATINGS[@]}"; do
+            [[ "$r" == "$CATEGORY" ]] && { TAG_UNKNOWN=0; break; }
+        done
+    fi
+    if [[ $TAG_UNKNOWN -eq 1 ]]; then
+        echo "Warning: '$CATEGORY' not in known categories. See '$prog --help'." >&2
+    fi
+}
+
+# ============================================================
 # print_config_help - print JSON config file documentation
 # ============================================================
 print_config_help() {
@@ -1864,6 +2199,8 @@ Example config:
 Fields:
   logo.padding.top      blank lines before output (default: 0)
   display.separator     string between key label and value (default: ": ")
+  privacy.publicIp      look up public IP address (default: true; false skips
+                        the network request and omits the publicip info type)
   modules               array of items to show (omit = show all collected info)
 
 Module field details:
@@ -1920,7 +2257,6 @@ Available info types (type name -> shown as):
 Flags:
   --config <path>   load config from custom file path
   -c <path>         short form of --config
-  --no-public-ip    skip public IP fetch (network request)
 
 Without a config file, waifufetch shows all available info
 in default format (cyan key, colon separator).

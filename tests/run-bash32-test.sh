@@ -1,6 +1,10 @@
 #!/bin/sh
 # run-bash32-test.sh - runs inside the Docker container
 # Uses /usr/local/bin/bash (bash 3.2) for all tests
+#
+# Runs under busybox /bin/sh (Ash), which supports the non-POSIX `local`
+# keyword used below to keep the container script simple.
+# shellcheck disable=SC3043
 
 BASH32="/usr/local/bin/bash"
 WAIFU_DIR="/waifufetch"

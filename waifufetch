@@ -5,294 +5,29 @@
 # Repository: https://github.com/JGH0/waifufetch
 # License: MIT
 
-set -euo pipefail
+set -euo pipefail 2>/dev/null || set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/libwaifu.sh"
 
 main() {
     # ============================================================
-    # Parse flags from anywhere (must be first)
+    # Parse flags (shared with the `waifu` command)
     # ============================================================
-    DEBUG=0
-    NO_LINK=0
-    RESET_SETTINGS=0
-    IMAGE_INPUT_FILE=""
-    local FILTERED_ARGS=()
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --debug)                      DEBUG=1; shift ;;
-            --noLink)                     NO_LINK=1; shift ;;
-            --config|-c)
-                if [[ $# -lt 2 ]]; then
-                    echo "Error: --config/-c requires a file path argument" >&2
-                    exit 1
-                fi
-                CONFIG_PATH="$2"
-                shift 2
-                ;;
-            --list-tags|--list-categories|--list-ratings)
-                local _list_mode="${1#--list-}"
-                local _list_api=""
-                shift
-                # Check if nsfw was given before --list-tags (stored in FILTERED_ARGS)
-                for _pre_arg in "${FILTERED_ARGS[@]}"; do
-                    [[ "$_pre_arg" == "nsfw" ]] && { _list_mode="nsfw"; break; }
-                done
-                # Default --list-tags shows SFW-only tags
-                [[ "$_list_mode" == "tags" ]] && _list_mode="sfw"
-                # Accept: --list-tags <src>, --list-tags -a <src>
-                if [[ $# -ge 1 ]]; then
-                    if [[ "$1" == "-a" || "$1" == "--api" ]]; then
-                        shift; [[ $# -ge 1 ]] && { _list_api="$1"; shift; }
-                    else
-                        for _s in "${KNOWN_API_SOURCES[@]}"; do
-                            [[ "$1" == "$_s" && "$_s" != "auto" ]] && { _list_api="$1"; shift; break; }
-                        done
-                    fi
-                fi
-                print_tag_lists "$_list_mode" "$_list_api"
-                exit 0
-                ;;
-            --help-config)
-                print_config_help
-                exit 0
-                ;;
-            --resetSettings)
-                rm -rf "$WAIFU_CONFIG_DIR"
-                echo "Settings reset. Config directory removed: $WAIFU_CONFIG_DIR"
-                exit 0
-                ;;
-            -v|--version)
-                echo "waifufetch v$VERSION"
-                exit 0
-                ;;
-            -i)
-                if [[ $# -lt 2 ]]; then
-                    echo "Error: -i requires a file path argument" >&2
-                    exit 1
-                fi
-                IMAGE_INPUT_FILE="$2"
-                shift 2
-                ;;
-            -a|--api)
-                if [[ $# -lt 2 ]]; then
-                    echo "Error: -a/--api requires an API source argument" >&2
-                    echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
-                    exit 1
-                fi
-                local _api_valid=0
-                for _s in "${KNOWN_API_SOURCES[@]}"; do
-                    [[ "$2" == "$_s" ]] && { _api_valid=1; break; }
-                done
-                if [[ $_api_valid -eq 0 ]]; then
-                    echo "Error: Unknown API source '$2'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
-                    exit 1
-                fi
-                API_SOURCE="$2"
-                shift 2
-                ;;
-            *)         FILTERED_ARGS+=("$1"); shift ;;
-        esac
-    done
+    parse_common_flags "waifufetch" 1 "$@"
 
     # Load JSON config
     load_json_config "${CONFIG_PATH:-$WAIFU_JSON_CONFIG}" || true
 
-    # Must guard empty array expansion for bash < 4.0 (macOS) with set -u
-    if [[ ${#FILTERED_ARGS[@]} -eq 0 ]]; then
-        set --
-    else
-        set -- "${FILTERED_ARGS[@]}"
-    fi
+    # ============================================================
+    # Help + --setDefault* handling (shared)
+    # ============================================================
+    set -- ${FILTERED_ARGS[@]+"${FILTERED_ARGS[@]}"}
+    handle_help_and_setdefaults "waifufetch" "$@"
 
     # ============================================================
-    # Help (scan all args)
+    # Mode / rating / category parsing (shared)
     # ============================================================
-    local HELP_REQUESTED=0
-    for arg in "$@"; do
-        if [[ "$arg" == "--help" ]]; then
-            HELP_REQUESTED=1
-        fi
-    done
-    if [[ $HELP_REQUESTED -eq 1 ]]; then
-        for arg in "$@"; do
-            if [[ "$arg" == "nsfw" ]]; then
-                nsfw_help "waifufetch"
-            fi
-        done
-        usage "waifufetch"
-    fi
-
-    # ============================================================
-    # Set default displayer
-    # ============================================================
-    if [[ "${1:-}" == "--setDefaultDisplayer" ]]; then
-        if [[ $# -lt 2 ]]; then
-            echo "Usage: waifufetch --setDefaultDisplayer <displayer>"
-            echo "Valid: icat, chafa, img2txt, jp2a, sixel"
-            echo "Run with empty value to clear: --setDefaultDisplayer \"\""
-            exit 1
-        fi
-        local NEW_DISP="$2"
-        case "$NEW_DISP" in
-            icat|chafa|img2txt|jp2a|sixel)
-                mkdir -p "$WAIFU_CONFIG_DIR"
-                echo "$NEW_DISP" > "$WAIFU_DISPLAYER_FILE"
-                echo "Default displayer set to: $NEW_DISP"
-                ;;
-            "")
-                rm -f "$WAIFU_DISPLAYER_FILE"
-                echo "Default displayer cleared (will auto-detect)"
-                ;;
-            *)
-                echo "Error: Invalid displayer '$NEW_DISP'. Valid: icat, chafa, img2txt, jp2a, sixel" >&2
-                exit 1
-                ;;
-        esac
-        exit 0
-    fi
-
-    # ============================================================
-    # Set default SFW
-    # ============================================================
-    if [[ "${1:-}" == "--setDefaultSFW" ]]; then
-        if [[ $# -lt 2 ]]; then
-            echo "Usage: waifufetch --setDefaultSFW <rating>"
-            echo "Valid: safe, suggestive, borderline"
-            echo "Run with empty value to reset to default: --setDefaultSFW \"\""
-            exit 1
-        fi
-        local NEW_VAL="$2"
-        case "$NEW_VAL" in
-            safe)
-                mkdir -p "$WAIFU_CONFIG_DIR"
-                echo "safe" > "$CONFIG_FILE"
-                echo "Default SFW rating set to: safe (safe only)"
-                ;;
-            suggestive)
-                mkdir -p "$WAIFU_CONFIG_DIR"
-                echo "suggestive" > "$CONFIG_FILE"
-                echo "Default SFW rating set to: suggestive (safe + suggestive)"
-                ;;
-            borderline)
-                mkdir -p "$WAIFU_CONFIG_DIR"
-                echo "borderline" > "$CONFIG_FILE"
-                echo "Default SFW rating set to: borderline (safe + suggestive + borderline)"
-                ;;
-            explicit)
-                echo "Error: Cannot set default SFW to 'explicit'. Use 'waifufetch explicit' for one-off requests." >&2
-                exit 1
-                ;;
-            "")
-                rm -f "$CONFIG_FILE"
-                echo "Default SFW rating reset to: safe (default)"
-                ;;
-            *)
-                echo "Error: Invalid rating '$NEW_VAL'. Valid: safe, suggestive, borderline" >&2
-                exit 1
-                ;;
-        esac
-        exit 0
-    fi
-
-    # ============================================================
-    # Set default API
-    # ============================================================
-    if [[ "${1:-}" == "--setDefaultAPI" ]]; then
-        if [[ $# -lt 2 ]]; then
-            echo "Usage: waifufetch --setDefaultAPI <source>"
-            echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru"
-            echo "Run with empty value to reset to default: --setDefaultAPI \"\""
-            exit 1
-        fi
-        local NEW_API_VAL="$2"
-        if [[ -z "$NEW_API_VAL" ]]; then
-            rm -f "$WAIFU_API_FILE"
-            echo "Default API source reset to: auto (fallback chain)"
-            exit 0
-        fi
-        local _api_valid=0
-        for _s in "${KNOWN_API_SOURCES[@]}"; do
-            [[ "$NEW_API_VAL" == "$_s" ]] && { _api_valid=1; break; }
-        done
-        if [[ $_api_valid -eq 0 ]]; then
-            echo "Error: Invalid API source '$NEW_API_VAL'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
-            exit 1
-        fi
-        mkdir -p "$WAIFU_CONFIG_DIR"
-        printf '%s\n' "$NEW_API_VAL" > "$WAIFU_API_FILE"
-        echo "Default API source set to: $NEW_API_VAL"
-        echo "  auto       - fallback chain: nekosapi -> waifu.im -> nekos.best -> danbooru"
-        echo "  waifu.im   - waifu.im only"
-        echo "  nekosapi   - nekosapi.com v4 only"
-        echo "  nekos.best - nekos.best only"
-        echo "  danbooru   - Danbooru only (JSON API) - supports femboy, trap, and more"
-        exit 0
-    fi
-
-    # ============================================================
-    # Parse positional displayer from first arg
-    # ============================================================
-    DISPLAYER="$DEFAULT_DISPLAYER"
-    if [[ $# -ge 1 ]]; then
-        case "${1}" in
-            icat|chafa|img2txt|jp2a|sixel)
-                DISPLAYER="${1}"
-                shift
-                ;;
-        esac
-    fi
-
-    # ============================================================
-    # Parse mode/category/rating
-    # ============================================================
-    MODE="sfw"
-    RATING_LEVEL="$DEFAULT_SFW"
-    CATEGORY="waifu"
-    IS_DIRECT_RATING=0
-
-    if [[ $# -ge 1 ]]; then
-        case "${1}" in
-            sfw)
-                MODE="sfw"
-                RATING_LEVEL="$DEFAULT_SFW"
-                [[ $# -ge 2 ]] && CATEGORY="$2"
-                ;;
-            nsfw)
-                MODE="nsfw"
-                RATING_LEVEL="explicit"
-                [[ $# -ge 2 ]] && CATEGORY="$2"
-                ;;
-            safe|suggestive|borderline|explicit)
-                RATING_LEVEL="${1}"
-                IS_DIRECT_RATING=1
-                [[ "${1}" == "explicit" ]] && MODE="nsfw" || MODE="sfw"
-                [[ $# -ge 2 ]] && CATEGORY="$2"
-                ;;
-            *)
-                CATEGORY="${1}"
-                ;;
-        esac
-    fi
-
-    # ============================================================
-    # Unknown tag warning
-    # ============================================================
-    local TAG_UNKNOWN=1
-    for t in "${ALL_KNOWN_TAGS[@]}"; do
-        if [[ "$t" == "$CATEGORY" ]]; then
-            TAG_UNKNOWN=0
-            break
-        fi
-    done
-    if [[ $TAG_UNKNOWN -eq 1 ]]; then
-        for r in "${KNOWN_RATINGS[@]}"; do
-            [[ "$r" == "$CATEGORY" ]] && { TAG_UNKNOWN=0; break; }
-        done
-    fi
-    if [[ $TAG_UNKNOWN -eq 1 ]]; then
-        echo "Warning: '$CATEGORY' not in known categories. See 'waifufetch --help'." >&2
-    fi
+    parse_mode_and_category "waifufetch" "$@"
 
     # ============================================================
     # Build API rating param
@@ -745,6 +480,7 @@ main() {
             else
                 # Can't animate -- show static side-by-side with INFO_LINES
                 _readlines art_lines < <(image_to_text "$tmpfile" "$width" "$INFO_LINE_COUNT" "$DISPLAYER" "$max_info_width" || true)
+                # shellcheck disable=SC2154  # art_lines filled by _readlines via eval
                 if [[ ${#art_lines[@]} -gt 0 ]]; then
                     print_side_by_side_raw art_lines INFO_LINES
                     [[ $NO_LINK -eq 0 ]] && echo "$image_url"

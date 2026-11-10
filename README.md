@@ -3,7 +3,7 @@
 **System info with a random waifu decoration.** Like fastfetch/neofetch, but
 with a waifu image as the ASCII art logo instead of a distro logo.
 
-Uses **nekosapi.com v4**, **waifu.im**, **nekos.best**, and **danbooru.donmai.us**
+Uses **nekosapi.com v4**, **nekos.best**, and **danbooru.donmai.us**
 APIs. No API keys required.
 
 Something not working? [Open an issue](https://github.com/JGH0/waifufetch/issues).
@@ -99,7 +99,7 @@ Display system info with a random waifu decoration.
   waifufetch --setDefaultDisplayer <d>    - set default image displayer
                                        ("" to clear, auto-detect)
   waifufetch --setDefaultAPI <source>     - set default API source
-                                       (auto, waifu.im, nekosapi, nekos.best, danbooru)
+                                       (auto, nekosapi, nekos.best, danbooru)
   waifufetch --resetSettings              - remove all saved config files
   waifufetch -i <file>                    - display a local image/GIF with system info
 
@@ -155,16 +155,15 @@ waifu [displayer] [category|rating] [tag] [--debug]
 
 ## API Sources
 
-The program uses four APIs in a fallback chain. No API keys required:
+The program uses three APIs in a fallback chain. No API keys required:
 
 | Source | Auth | Content | Tags |
 |---|---|---|---|
 | **nekosapi.com v4** | None | SFW + NSFW anime | waifu, neko, and others |
-| **waifu.im** | None | SFW + NSFW anime | maid, uniform, selfies, ero, ecchi, hentai, characters |
 | **nekos.best** | None | SFW anime + reaction GIFs | waifu, neko, kitsune, husbando, 50+ GIFs |
 | **danbooru.donmai.us** | None (rate-limited IP) | SFW + NSFW, any rating | 1M+ tags including femboy, trap, cosplay, characters |
 
-Fallback chain: `nekosapi -> waifu.im -> nekos.best -> danbooru`
+Fallback chain: `nekosapi -> nekos.best -> danbooru`
 
 Danbooru-only tags (femboy, trap, catgirl, bikini, etc.) route directly to
 Danbooru, skipping the other APIs.
@@ -184,12 +183,9 @@ waifu --setDefaultAPI auto   # back to fallback chain
 ## Tags
 
 ```
-SFW Tags:    waifu, neko, kitsune, husbando, maid, uniform, selfies
-NSFW Tags:   ero, ecchi, hentai, oppai, ass, milf, oral, paizuri
-Danbooru:    femboy, trap, catgirl, original, cosplay, bikini, swimsuit,
+Tags:        waifu, neko, kitsune, husbando
+Danbooru:    femboy, trap, catgirl, original, cosplay, maid, bikini, swimsuit,
              lingerie, pantyhose, stockings, bunny_girl, blush, skirt, thighhighs
-Characters:  raiden-shogun, mori-calliope, rem, marin-kitagawa,
-             genshin-impact, kamisato-ayaka
 GIFs:        lurk, shoot, sleep, clap, shrug, stare, wave, poke, confused,
              smile, peck, wink, sip, blush, smug, tickle, yeet, think,
              highfive, feed, wag, bite, teehee, shocked, bleh, bored, nom,

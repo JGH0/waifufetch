@@ -11,9 +11,6 @@ VERSION="1.4.0"
 # ============================================================
 # Tag lists (not 100% precise - the APIs decide what fits)
 # ============================================================
-WIM_SFW=(waifu maid uniform selfies)
-WIM_NSFW=(ero ecchi hentai oppai ass milf oral paizuri)
-WIM_CHARS=(raiden-shogun mori-calliope rem marin-kitagawa genshin-impact kamisato-ayaka)
 NB_STATIC=(waifu neko kitsune husbando)
 NB_GIFS=(lurk shoot sleep clap shrug stare wave poke confused smile \
          peck wink sip blush smug tickle yeet think highfive feed wag bite \
@@ -29,13 +26,12 @@ DANBOORU_TAGS=(femboy trap neko catgirl waifu original cosplay maid bikini swims
 
 KNOWN_RATINGS=(safe suggestive borderline explicit sfw nsfw)
 ALL_RATINGS=(safe suggestive borderline explicit sfw nsfw)
-ALL_KNOWN_TAGS=("${WIM_SFW[@]}" "${WIM_NSFW[@]}" "${WIM_CHARS[@]}" "${NB_STATIC[@]}" "${NB_GIFS[@]}" "${DANBOORU_TAGS[@]}")
-KNOWN_API_SOURCES=(auto waifu.im nekosapi nekos.best danbooru)
+ALL_KNOWN_TAGS=("${NB_STATIC[@]}" "${NB_GIFS[@]}" "${DANBOORU_TAGS[@]}")
+KNOWN_API_SOURCES=(auto nekosapi nekos.best danbooru)
 
 # Tag-to-API mapping for --list-tags -a filtering
 # First entry is the primary API, subsequent are fallbacks
 # Declare arrays for each API's direct tags
-API_WAIFUIM_TAGS=("${WIM_SFW[@]}" "${WIM_NSFW[@]}" "${WIM_CHARS[@]}")
 API_NEKOSAPI_TAGS=(waifu)
 API_NEKOSBEST_TAGS=("${NB_STATIC[@]}" "${NB_GIFS[@]}")
 API_DANBOORU_TAGS=("${DANBOORU_TAGS[@]}")
@@ -121,7 +117,7 @@ if [[ -f "$WAIFU_API_FILE" ]]; then
     read -r API_VAL < "$WAIFU_API_FILE" || true
     API_VAL="$(printf '%s' "$API_VAL" | xargs)"
     case "$API_VAL" in
-        auto|waifu.im|nekosapi|nekos.best|danbooru) DEFAULT_API="$API_VAL" ;;
+        auto|nekosapi|nekos.best|danbooru) DEFAULT_API="$API_VAL" ;;
     esac
 fi
 
@@ -585,7 +581,7 @@ fetch_waifu() {
     if [[ $is_dan -eq 1 && $is_gif -eq 0 ]]; then
         # Check if this tag is exclusive to Danbooru (not in any other API)
         local is_shared=0
-        for t in "${API_WAIFUIM_TAGS[@]}" "${API_NEKOSAPI_TAGS[@]}" "${API_NEKOSBEST_TAGS[@]}"; do
+        for t in "${API_NEKOSAPI_TAGS[@]}" "${API_NEKOSBEST_TAGS[@]}"; do
             [[ "$t" == "$category" ]] && { is_shared=1; break; }
         done
         if [[ $is_shared -eq 0 ]]; then
@@ -627,19 +623,6 @@ fetch_waifu() {
                 break
             fi
         done
-    fi
-
-    # ---- waifu.im ----
-    if _should_try_source waifu.im && [[ -z "$url" && $is_gif -eq 0 ]]; then
-        local wim_nsf="false"
-        [[ "$RATING_LEVEL" == "borderline" || "$RATING_LEVEL" == "explicit" || "$MODE" == "nsfw" ]] && wim_nsf="true"
-        [[ $IS_DIRECT_RATING -eq 1 && "$RATING_LEVEL" == "suggestive" ]] && wim_nsf="true"
-        local json
-        json="$(curl -sL --max-time 5 \
-            "https://api.waifu.im/images?IsNsfw=${wim_nsf}&IncludedTags=${category}")"
-        if ! printf '%s' "$json" | grep -q "Just a moment\|_cf_chl_opt\|challenge-platform"; then
-            url="$(printf '%s' "$json" | jq -r '.items[0].url // empty' 2>/dev/null)"
-        fi
     fi
 
     # ---- nekos.best ----
@@ -1941,7 +1924,7 @@ parse_common_flags() {
             -a|--api)
                 if [[ $# -lt 2 ]]; then
                     echo "Error: -a/--api requires an API source argument" >&2
-                    echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+                    echo "Valid: auto, nekosapi, nekos.best, danbooru" >&2
                     exit 1
                 fi
                 local _api_valid=0
@@ -1949,7 +1932,7 @@ parse_common_flags() {
                     [[ "$2" == "$_s" ]] && { _api_valid=1; break; }
                 done
                 if [[ $_api_valid -eq 0 ]]; then
-                    echo "Error: Unknown API source '$2'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+                    echo "Error: Unknown API source '$2'. Valid: auto, nekosapi, nekos.best, danbooru" >&2
                     exit 1
                 fi
                 API_SOURCE="$2"
@@ -2075,7 +2058,7 @@ handle_help_and_setdefaults() {
     if [[ "${1:-}" == "--setDefaultAPI" ]]; then
         if [[ $# -lt 2 ]]; then
             echo "Usage: $prog --setDefaultAPI <source>"
-            echo "Valid: auto, waifu.im, nekosapi, nekos.best, danbooru"
+            echo "Valid: auto, nekosapi, nekos.best, danbooru"
             echo "Run with empty value to reset to default: --setDefaultAPI \"\""
             exit 1
         fi
@@ -2090,14 +2073,13 @@ handle_help_and_setdefaults() {
             [[ "$NEW_API_VAL" == "$_s" ]] && { _api_valid=1; break; }
         done
         if [[ $_api_valid -eq 0 ]]; then
-            echo "Error: Invalid API source '$NEW_API_VAL'. Valid: auto, waifu.im, nekosapi, nekos.best, danbooru" >&2
+            echo "Error: Invalid API source '$NEW_API_VAL'. Valid: auto, nekosapi, nekos.best, danbooru" >&2
             exit 1
         fi
         mkdir -p "$WAIFU_CONFIG_DIR"
         printf '%s\n' "$NEW_API_VAL" > "$WAIFU_API_FILE"
         echo "Default API source set to: $NEW_API_VAL"
-        echo "  auto       - fallback chain: nekosapi -> waifu.im -> nekos.best -> danbooru"
-        echo "  waifu.im   - waifu.im only"
+        echo "  auto       - fallback chain: nekosapi -> nekos.best -> danbooru"
         echo "  nekosapi   - nekosapi.com v4 only"
         echo "  nekos.best - nekos.best only"
         echo "  danbooru   - Danbooru only (JSON API) - supports femboy, trap, and more"
@@ -2285,7 +2267,6 @@ print_tag_lists() {
         [[ -z "$api_filter" ]] && return 0
         case "$group" in
             nb)   [[ "$api_filter" == "nekos.best" ]] ;;
-            wim)  [[ "$api_filter" == "waifu.im" ]] ;;
             dan) [[ "$api_filter" == "danbooru" ]] ;;
             neko) [[ "$api_filter" == "nekosapi" ]] ;;
             *)    return 1 ;;
@@ -2305,21 +2286,6 @@ print_tag_lists() {
         if [[ "$mode" == "all" || "$_is_sfw" -eq 1 || "$mode" == "categories" ]]; then
             echo "=== Categories (nekos.best) ==="
             for t in "${NB_STATIC[@]}"; do echo "  $t"; done
-        fi
-        if [[ "$mode" == "all" || "$_is_sfw" -eq 1 || "$mode" == "sfw" ]]; then
-            echo ""
-            echo "=== SFW Tags (waifu.im) ==="
-            for t in "${WIM_SFW[@]}"; do echo "  $t"; done
-        fi
-        if [[ "$mode" == "all" || "$mode" == "nsfw" ]]; then
-            echo ""
-            echo "=== NSFW Tags (waifu.im) ==="
-            for t in "${WIM_NSFW[@]}"; do echo "  $t"; done
-        fi
-        if [[ "$mode" == "all" || "$_is_sfw" -eq 1 || "$mode" == "characters" ]]; then
-            echo ""
-            echo "=== Characters (waifu.im) ==="
-            for t in "${WIM_CHARS[@]}"; do echo "  $t"; done
         fi
         if [[ "$mode" == "all" || "$_is_sfw" -eq 1 || "$mode" == "gifs" ]]; then
             echo ""
@@ -2348,27 +2314,6 @@ print_tag_lists() {
         if _should_show nb; then
             echo "=== Categories${_group_suffix} ==="
             for t in "${NB_STATIC[@]}"; do echo "  $t"; done
-        fi
-    fi
-    if [[ "$mode" == "all" || "$mode" == "sfw" ]]; then
-        if _should_show wim; then
-            echo ""
-            echo "=== SFW Tags${_group_suffix} ==="
-            for t in "${WIM_SFW[@]}"; do echo "  $t"; done
-        fi
-    fi
-    if [[ "$mode" == "all" || "$mode" == "nsfw" ]]; then
-        if _should_show wim; then
-            echo ""
-            echo "=== NSFW Tags${_group_suffix} ==="
-            for t in "${WIM_NSFW[@]}"; do echo "  $t"; done
-        fi
-    fi
-    if [[ "$mode" == "all" || "$mode" == "characters" ]]; then
-        if _should_show wim; then
-            echo ""
-            echo "=== Characters${_group_suffix} ==="
-            for t in "${WIM_CHARS[@]}"; do echo "  $t"; done
         fi
     fi
     if [[ "$mode" == "all" || "$mode" == "gifs" ]]; then
@@ -2420,12 +2365,12 @@ Usage: $prog [displayer] [category|rating] [tag] [--noLink] [--debug]
                                        Valid: safe, suggestive, borderline
                                        (empty value "" to reset to default)
   $prog --setDefaultAPI <source>     - set default API source
-                                       Valid: auto, waifu.im, nekosapi,
+                                       Valid: auto, nekosapi,
                                        nekos.best, danbooru
                                        (empty value "" to reset to auto)
   $prog --resetSettings              - remove all saved settings and config files
   $prog nsfw --list-tags             - list ALL tags (SFW + NSFW + Danbooru)
-  $prog --list-tags                  - list all SFW tags, categories, characters
+  $prog --list-tags                  - list tags, categories and ratings
   $prog --list-categories            - list available categories only
   $prog --list-ratings               - list available rating levels
   $prog --list-tags -a <source>      - list tags from a specific API only
@@ -2438,9 +2383,8 @@ Usage: $prog [displayer] [category|rating] [tag] [--noLink] [--debug]
   $prog --config <file>              - load JSON config (see CONFIG.md)
   $prog -c <file>                    - same as --config (short form)
 
-Image sources: Waifu.im, Nekos API, Nekos.best + Danbooru (fallback)
-  auto       fallback chain  - nekosapi -> waifu.im -> nekos.best -> danbooru
-  waifu.im   waifu.im only
+Image sources: Nekos API, Nekos.best + Danbooru (fallback)
+  auto       fallback chain  - nekosapi -> nekos.best -> danbooru
   nekosapi   nekosapi.com v4 only
   nekos.best nekos.best only
   danbooru   Danbooru only (JSON API) - supports femboy, trap, and more
@@ -2453,13 +2397,10 @@ Displayers: icat, chafa, img2txt, jp2a, sixel
   sixel    native terminal image via chafa (sixel/kitty/iterm2)
   (default: auto-detect)
 
-Tags:    waifu, neko, kitsune, husbando, maid, uniform, selfies
-NSFW:    ero, ecchi, hentai, oppai, ass, milf, oral, paizuri
-Danbooru: femboy, trap, catgirl, original, cosplay, bikini, swimsuit,
+Tags:    waifu, neko, kitsune, husbando
+Danbooru: femboy, trap, catgirl, original, cosplay, maid, bikini, swimsuit,
           lingerie, pantyhose, stockings, bunny_girl, blush, skirt, thighhighs
          (Danbooru accepts any tag - see danbooru.donmai.us)
-Characters: raiden-shogun, mori-calliope, rem, marin-kitagawa,
-            genshin-impact, kamisato-ayaka
 GIFs:       lurk, shoot, sleep, clap, shrug, stare, wave, poke,
             confused, smile, peck, wink, sip, blush, smug, tickle,
             yeet, think, highfive, feed, wag, bite
@@ -2477,9 +2418,9 @@ Default displayer: ${DEFAULT_DISPLAYER:-auto}
   Clear with: $prog --setDefaultDisplayer ""
 
 Default API: ${DEFAULT_API:-auto}
-  Set with: $prog --setDefaultAPI <auto|waifu.im|nekosapi|nekos.best|danbooru>
+  Set with: $prog --setDefaultAPI <auto|nekosapi|nekos.best|danbooru>
 
-APIs: nekosapi.com v4, waifu.im, nekos.best, danbooru
+APIs: nekosapi.com v4, nekos.best, danbooru
 Note: Danbooru-only tags (femboy, trap, etc.) route directly to
       danbooru. No API key required. Tag/rating filtering depends
       on API metadata and is not 100%% precise.
@@ -2519,11 +2460,11 @@ Usage: $prog [displayer] [category|rating] [tag] [--debug]
                                        Valid: icat, chafa, img2txt, jp2a, sixel
                                        (empty value "" to clear / auto-detect)
   $prog --setDefaultAPI <source>     - set default API source
-                                       Valid: auto, waifu.im, nekosapi,
+                                       Valid: auto, nekosapi,
                                        nekos.best, danbooru
   $prog --resetSettings              - remove all saved settings and config files
   $prog nsfw --list-tags             - list ALL tags (SFW + NSFW + Danbooru)
-  $prog --list-tags                  - list all SFW tags, categories, characters
+  $prog --list-tags                  - list tags, categories and ratings
   $prog --list-categories            - list available categories only
   $prog --list-ratings               - list available rating levels
   $prog --list-tags -a <source>      - list tags from a specific API only
@@ -2537,9 +2478,8 @@ Usage: $prog [displayer] [category|rating] [tag] [--debug]
   $prog -v, --version                - show version and exit
   $prog nsfw --help                  - show NSFW-specific help
 
-Image sources: Waifu.im, Nekos API, Nekos.best + Danbooru (fallback)
-  auto       fallback chain  - nekosapi -> waifu.im -> nekos.best -> danbooru
-  waifu.im   waifu.im only
+Image sources: Nekos API, Nekos.best + Danbooru (fallback)
+  auto       fallback chain  - nekosapi -> nekos.best -> danbooru
   nekosapi   nekosapi.com v4 only
   nekos.best nekos.best only
   danbooru   Danbooru only (JSON API) - supports femboy, trap, and more
@@ -2552,18 +2492,16 @@ Displayers: icat, chafa, img2txt, jp2a, sixel
   sixel    native terminal image via chafa (sixel/kitty/iterm2)
   (default: auto-detect)
 
-Tags:    waifu, neko, kitsune, husbando, maid, uniform, selfies
-Danbooru: femboy, trap, catgirl, original, cosplay, bikini, swimsuit,
+Tags:    waifu, neko, kitsune, husbando
+Danbooru: femboy, trap, catgirl, original, cosplay, maid, bikini, swimsuit,
           lingerie, pantyhose, stockings, bunny_girl, blush, skirt, thighhighs
-Characters: raiden-shogun, mori-calliope, rem, marin-kitagawa,
-           genshin-impact, kamisato-ayaka
 GIFs:      lurk, shoot, sleep, clap, shrug, stare, wave, poke,
            confused, smile, peck, wink, sip, blush, smug, tickle,
            yeet, think, highfive, feed, wag, bite
 
 Run '$prog --list-tags' for all SFW tags, '$prog nsfw --list-tags' for all.
 
-APIs used: nekosapi.com v4, waifu.im, nekos.best, danbooru
+APIs used: nekosapi.com v4, nekos.best, danbooru
 Note: Danbooru-only tags (femboy, trap, etc.) route directly to
       danbooru. No API key required. Tags and ratings depend on
       API metadata and are not 100%% precise.
